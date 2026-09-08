@@ -22,7 +22,7 @@ jobs:
             qt: '5.15'
             qt_arch: 'win64_msvc2019_64'
             qt_modules: ''
-            generator: '"Visual Studio 17 2022" -A x64'
+            generator: Ninja
             artifact_ext: '7z'
             artifact_name: 'QCutter-windows-msvc'
           - name: windows-mingw
@@ -99,6 +99,8 @@ jobs:
 
       - name: Configure
         run: |
+          # windows-msvc uses ilammy/msvc-dev-cmd (sets up cl.exe in PATH).
+          # Ninja with MSVC tools works; cmake finds cl.exe via PATH.
           cmake -S . -B build \
             -G ${{ matrix.generator }} \
             -DCMAKE_BUILD_TYPE=Release \
