@@ -22,6 +22,7 @@ jobs:
             qt: '5.15'
             qt_arch: 'win64_msvc2019_64'
             qt_modules: ''
+            generator: '"Visual Studio 17 2022" -A x64'
             artifact_ext: '7z'
             artifact_name: 'QCutter-windows-msvc'
           - name: windows-mingw
@@ -30,6 +31,7 @@ jobs:
             qt: '5.15'
             qt_arch: 'win64_mingw81'
             qt_modules: ''
+            generator: Ninja
             artifact_ext: '7z'
             artifact_name: 'QCutter-windows-mingw'
           - name: ubuntu
@@ -38,6 +40,7 @@ jobs:
             qt: '5.15'
             qt_arch: 'gcc_64'
             qt_modules: ''
+            generator: Ninja
             artifact_ext: 'tar.gz'
             artifact_name: 'QCutter-linux'
 
@@ -88,16 +91,22 @@ jobs:
           modules: ${{ matrix.qt_modules }}
           cache: true
 
+      - name: Setup MSVC dev cmd (windows-msvc only)
+        if: matrix.name == 'windows-msvc'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Configure
         run: |
           cmake -S . -B build \
-            -G Ninja \
+            -G ${{ matrix.generator }} \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" \
             -DCMAKE_PREFIX_PATH="${{ steps.Install-Qt.outputs.QT_PREFIX_PATH }}"
 
       - name: Build
-        run: cmake --build build -j 2
+        run: cmake --build build --config Release -j 2
 
       - name: Strip binary (linux)
         if: matrix.os == 'ubuntu-22.04'
@@ -108,14 +117,15 @@ jobs:
         run: |
           rm -rf stage
           mkdir -p stage
-          # 把 build 根下的 QCutter 可执行文件复制到 stage
-          find build -maxdepth 2 -name 'QCutter*' -type f -executable -exec cp {} stage/ \; 2>/dev/null || true
-          find build -maxdepth 2 -name 'QCutter.exe' -exec cp {} stage/ \; 2>/dev/null || true
+          # Ninja: build/QCutter / build/QCutter.exe
+          # Visual Studio (Release config): build/Release/QCutter.exe
+          find build -maxdepth 3 \( -name 'QCutter' -o -name 'QCutter.exe' \) \
+            -type f -executable -exec cp {} stage/ \; 2>/dev/null || true
           # Windows: 复制 Qt + vcpkg DLL
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             QT_BIN="${{ steps.Install-Qt.outputs.QT_PREFIX_PATH }}/bin"
             for d in Qt5Core Qt5Gui Qt5Widgets Qt5Network Qt5Sql Qt5PrintSupport \
-                     Qt5Concurrent; do
+              Qt5Concurrent; do
               find "$QT_BIN" -maxdepth 1 -name "${d}.dll" -exec cp {} stage/ \; 2>/dev/null || true
             done
             find "$GITHUB_WORKSPACE/vcpkg/installed" -name "*.dll" -exec cp {} stage/ \; 2>/dev/null || true
@@ -129,7 +139,6 @@ jobs:
           # 打包
           if [ "${{ matrix.artifact_ext }}" = "7z" ]; then
             (cd stage && 7z a "../${{ matrix.artifact_name }}.7z" . 2>&1) || {
-              # 7z 未装时用 zip 兜底
               (cd stage && zip -r "../${{ matrix.artifact_name }}.zip" .)
               mv "${{ matrix.artifact_name }}.zip" "${{ matrix.artifact_name }}.7z"
             }
