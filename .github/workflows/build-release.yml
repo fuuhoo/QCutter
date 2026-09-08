@@ -131,14 +131,18 @@ jobs:
             -type f -executable -exec cp {} stage/ \; 2>/dev/null || true
           echo "--- stage contents before DLL copy ---"
           ls -la stage
-          # Windows: 复制 Qt + vcpkg DLL (Qt 安装器把 Qt5*.dll 放在 QT_ROOT_DIR 根目录)
+          # Windows: 复制 Qt + vcpkg DLL
+          # aqtinstall 把 Qt5*.dll 放在 $QT_ROOT_DIR/bin/, plugins 放在 $QT_ROOT_DIR/plugins/
           if [ "${{ matrix.os }}" = "windows-2022" ]; then
             echo "QT_ROOT_DIR=$QT_ROOT_DIR"
             if [ -n "$QT_ROOT_DIR" ] && [ -d "$QT_ROOT_DIR" ]; then
-              for d in Qt5Core Qt5Gui Qt5Widgets Qt5Network Qt5Sql Qt5PrintSupport \
-                Qt5Concurrent; do
-                find "$QT_ROOT_DIR" -maxdepth 1 -name "${d}.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
-              done
+              # Qt5Core/Gui/Widgets/Network/Sql/PrintSupport/Concurrent dll
+              if [ -d "$QT_ROOT_DIR/bin" ]; then
+                for d in Qt5Core Qt5Gui Qt5Widgets Qt5Network Qt5Sql Qt5PrintSupport \
+                  Qt5Concurrent; do
+                  find "$QT_ROOT_DIR/bin" -maxdepth 1 -name "${d}.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
+                done
+              fi
               # platforms/qwindows.dll 必须放在 platforms/ 子目录
               if [ -d "$QT_ROOT_DIR/plugins/platforms" ]; then
                 mkdir -p stage/platforms
