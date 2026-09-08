@@ -21,7 +21,7 @@ jobs:
             vcpkg_triplet: x64-windows
             qt: '5.15'
             qt_arch: 'win64_msvc2019_64'
-            qt_modules: 'qtimageformats'
+            qt_modules: ''
             artifact_ext: '7z'
             artifact_name: 'QCutter-windows-msvc'
           - name: windows-mingw

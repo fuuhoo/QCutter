@@ -121,20 +121,21 @@ target_include_directories(QCutter PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-# MapLibre 资源 (运行时由 writer.cpp 从 assets/ 拷贝到输出目录)
+# MapLibre 资源 (运行时由 writer.cpp 从 assets/ 拷贝到输出目录).
+# assets/maplibre/{*.js, *.css} 在 .gitignore 中 (运行时由代码按需下载),
+# 所以源码树里 assets/ 可能为空或缺失. 用 CMake script 守卫跳过防止 build 报错.
 add_custom_command(
     TARGET QCutter POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets"
-        "$<TARGET_FILE_DIR:QCutter>/assets"
-    COMMENT "Copying MapLibre assets to build directory"
+    COMMAND ${CMAKE_COMMAND}
+        -DSRC="${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        -DDST="$<TARGET_FILE_DIR:QCutter>/assets"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CopyAssetsIfPresent.cmake"
+    COMMENT "Copying MapLibre assets to build directory (skipped if absent)"
+    VERBATIM
 )
-
-# ----------------------------------------------------------------------------
-# 安装
-# ----------------------------------------------------------------------------
-install(TARGETS QCutter RUNTIME DESTINATION bin)
-install(DIRECTORY assets DESTINATION share/qcutter)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
+    install(DIRECTORY assets DESTINATION share/qcutter)
+endif()
 
 # ----------------------------------------------------------------------------
 # 摘要信息
