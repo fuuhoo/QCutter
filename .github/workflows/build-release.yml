@@ -123,16 +123,18 @@ jobs:
           # Visual Studio (Release config): build/Release/QCutter.exe
           find build -maxdepth 3 \( -name 'QCutter' -o -name 'QCutter.exe' \) \
             -type f -executable -exec cp {} stage/ \; 2>/dev/null || true
-          # Windows: 复制 Qt + vcpkg DLL
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            QT_BIN="${{ steps.Install-Qt.outputs.QT_PREFIX_PATH }}/bin"
+          # Windows: 复制 Qt + vcpkg DLL (Qt 安装器把 Qt5*.dll 放在 QT_PREFIX_PATH 根目录)
+          if [ "${{ matrix.os }}" = "windows-2022" ]; then
+            QT_ROOT="${{ steps.Install-Qt.outputs.QT_PREFIX_PATH }}"
+            # Qt5*.dll + 一些 vcpkg DLL (libtiff-5, sqlite3 等)
             for d in Qt5Core Qt5Gui Qt5Widgets Qt5Network Qt5Sql Qt5PrintSupport \
-              Qt5Concurrent; do
-              find "$QT_BIN" -maxdepth 1 -name "${d}.dll" -exec cp {} stage/ \; 2>/dev/null || true
+              Qt5Concurrent libtiff-5 libsqlite3-0; do
+              find "$QT_ROOT" -maxdepth 1 -name "${d}.dll" -exec cp {} stage/ \; 2>/dev/null || true
             done
-            find "$GITHUB_WORKSPACE/vcpkg/installed" -name "*.dll" -exec cp {} stage/ \; 2>/dev/null || true
+            # vcpkg manifest 模式装到 source tree 的 vcpkg_installed/<triplet>/bin
+            find "$GITHUB_WORKSPACE/QCutter/vcpkg_installed" -name "*.dll" -exec cp {} stage/ \; 2>/dev/null || true
             # platforms/qwindows.dll 必须放在 platforms/ 子目录
-            PLUGINS="${{ steps.Install-Qt.outputs.QT_PREFIX_PATH }}/plugins"
+            PLUGINS="$QT_ROOT/plugins"
             if [ -d "$PLUGINS/platforms" ]; then
               mkdir -p stage/platforms
               cp "$PLUGINS/platforms/qwindows.dll" stage/platforms/ 2>/dev/null || true
