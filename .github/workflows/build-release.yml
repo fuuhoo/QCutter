@@ -74,9 +74,9 @@ jobs:
         env:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
         run: |
-          "$GITHUB_WORKSPACE/vcpkg/vcpkg" install \
-            --triplet=${{ matrix.vcpkg_triplet }} \
-            tiff sqlite3 nlohmann-json
+          # vcpkg.json 已在仓库里, vcpkg 自动进入 manifest 模式从该文件读取依赖.
+          # 不需要传包名, 也不需要 --triplet (env 设置了).
+          "$GITHUB_WORKSPACE/vcpkg/vcpkg" install
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4

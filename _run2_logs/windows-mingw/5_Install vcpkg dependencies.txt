@@ -1,0 +1,66 @@
+﻿2026-09-08T10:11:04.1323018Z ##[group]Run "$GITHUB_WORKSPACE/vcpkg/vcpkg" install \
+2026-09-08T10:11:04.1323720Z [36;1m"$GITHUB_WORKSPACE/vcpkg/vcpkg" install \[0m
+2026-09-08T10:11:04.1324048Z [36;1m  --triplet=x64-mingw-dynamic \[0m
+2026-09-08T10:11:04.1324316Z [36;1m  tiff sqlite3 nlohmann-json[0m
+2026-09-08T10:11:04.1338786Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-09-08T10:11:04.1339179Z env:
+2026-09-08T10:11:04.1339382Z   VCPKG_DEFAULT_TRIPLET: x64-mingw-dynamic
+2026-09-08T10:11:04.1339680Z ##[endgroup]
+2026-09-08T10:11:04.1940930Z error: In manifest mode, `vcpkg install` does not support individual package arguments.
+2026-09-08T10:11:04.1942088Z To install additional packages, edit vcpkg.json and then run `vcpkg install` without any package arguments.
+2026-09-08T10:11:04.1943204Z See https://learn.microsoft.com/vcpkg/users/manifests?WT.mc_id=vcpkg_inproduct_cli for more information.
+2026-09-08T10:11:04.1943789Z Using manifest file at D:\a\QCutter\QCutter\vcpkg.json.
+2026-09-08T10:11:04.1944236Z Synopsis: Installs a package
+2026-09-08T10:11:04.1944461Z Examples:
+2026-09-08T10:11:04.1944653Z   vcpkg install <port name> <port name>...
+2026-09-08T10:11:04.1944948Z   vcpkg install zlib zlib:x64-windows curl boost
+2026-09-08T10:11:04.1945248Z   vcpkg install --triplet x64-windows
+2026-09-08T10:11:04.1945619Z See https://learn.microsoft.com/vcpkg/commands/install for more information.
+2026-09-08T10:11:04.1946004Z Options:
+2026-09-08T10:11:04.1946534Z   --allow-unsupported    Continues with a warning on unsupported ports, rather than failing
+2026-09-08T10:11:04.1947186Z   --x-asset-sources=...  Asset caching sources. See 'vcpkg help assetcaching'
+2026-09-08T10:11:04.1947685Z   --binarysource=...     Binary caching sources. See 'vcpkg help binarycaching'
+2026-09-08T10:11:04.1948065Z   --x-buildtrees-root=...
+2026-09-08T10:11:04.1948362Z                          Buildtrees directory (experimental)
+2026-09-08T10:11:04.1948737Z   --classic              Force classic mode, even if a manifest could be found.
+2026-09-08T10:11:04.1949267Z   --clean-after-build    Cleans buildtrees, packages and downloads after building each package
+2026-09-08T10:11:04.1949726Z   --clean-buildtrees-after-build
+2026-09-08T10:11:04.1950032Z                          Cleans buildtrees after building each package
+2026-09-08T10:11:04.1950336Z   --clean-downloads-after-build
+2026-09-08T10:11:04.1950615Z                          Cleans downloads after building each package
+2026-09-08T10:11:04.1950927Z   --clean-packages-after-build
+2026-09-08T10:11:04.1951204Z                          Cleans packages after building each package
+2026-09-08T10:11:04.1951597Z   --downloads-root=...   Downloads directory (default: %VCPKG_DOWNLOADS%)
+2026-09-08T10:11:04.1952064Z   --dry-run              Does not actually build or install
+2026-09-08T10:11:04.1953514Z   --editable             Disables source re-extraction and binary caching for libraries on the
+2026-09-08T10:11:04.1954200Z                          command line (classic mode)
+2026-09-08T10:11:04.1954653Z   --enforce-port-checks  Fails install if a port has detected problems or attempts to use a
+2026-09-08T10:11:04.1955101Z                          deprecated feature
+2026-09-08T10:11:04.1955601Z   --x-feature=...        Additional features from the top-level manifest to install (manifest mode)
+2026-09-08T10:11:04.1956902Z   --head                 Installs the libraries on the command line using the latest upstream
+2026-09-08T10:11:04.1957460Z                          sources (classic mode)
+2026-09-08T10:11:04.1958093Z   --host-triplet=...     Host triplet. See 'vcpkg help triplet' (default:
+2026-09-08T10:11:04.1958491Z                          %VCPKG_DEFAULT_HOST_TRIPLET%)
+2026-09-08T10:11:04.1958823Z   --x-install-root=...   Installed directory (experimental)
+2026-09-08T10:11:04.1959217Z   --keep-going           Continues installing packages on failure
+2026-09-08T10:11:04.1959554Z   --x-no-default-features
+2026-09-08T10:11:04.1959926Z                          Does not install the default features from the top-level manifest (manifest
+2026-09-08T10:11:04.1962935Z                          mode)
+2026-09-08T10:11:04.1963419Z   --no-downloads         Does not download new sources
+2026-09-08T10:11:04.1964142Z   --no-print-usage       Does not print CMake usage information after install
+2026-09-08T10:11:04.1964919Z   --only-binarycaching   Fails if cached binaries are not available
+2026-09-08T10:11:04.1965748Z   --only-downloads       Makes best-effort attempt to download sources without building
+2026-09-08T10:11:04.1966934Z   --overlay-ports=...    Overlay-port directories, or directories containing overlay-port
+2026-09-08T10:11:04.1968231Z                          directories (also: %VCPKG_OVERLAY_PORTS%)
+2026-09-08T10:11:04.1969027Z   --overlay-triplets=... Directories of overlay triplets (also: %VCPKG_OVERLAY_TRIPLETS%)
+2026-09-08T10:11:04.1969849Z   --x-packages-root=...  Packages directory (experimental)
+2026-09-08T10:11:04.1970531Z   --recurse              Allows removal of packages as part of installation
+2026-09-08T10:11:04.1971150Z   --skip-install-if-cached
+2026-09-08T10:11:04.1971742Z                          Skips the installation of packages if every package is already cached
+2026-09-08T10:11:04.1973151Z   --triplet=...          Target triplet. See 'vcpkg help triplet' (default: %VCPKG_DEFAULT_TRIPLET%)
+2026-09-08T10:11:04.1974104Z   --vcpkg-root=...       The vcpkg root directory (default: %VCPKG_ROOT%)
+2026-09-08T10:11:04.1974719Z   --x-write-nuget-packages-config=...
+2026-09-08T10:11:04.1975413Z                          Writes a NuGet packages.config-formatted file for use with external binary
+2026-09-08T10:11:04.1975968Z                          caching. See `vcpkg help binarycaching` for more information
+2026-09-08T10:11:04.1976395Z 
+2026-09-08T10:11:04.2017157Z ##[error]Process completed with exit code 1.
