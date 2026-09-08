@@ -1,0 +1,159 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to build (branch/tag/SHA). Default: HEAD'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-msvc
+            os: windows-latest
+            qt: '5.15'
+            qt_arch: 'win64_msvc2019_64'
+            qt_modules: 'qtimageformats'
+            generator: 'Ninja'
+            config: 'Release'
+            artifact_dir: 'build/QCutter'
+            artifact_name: 'QCutter-windows-msvc'
+          - name: windows-mingw
+            os: windows-latest
+            qt: '5.15'
+            qt_arch: 'win64_mingw81'
+            qt_modules: ''
+            generator: 'Ninja'
+            config: 'Release'
+            artifact_dir: 'build/QCutter'
+            artifact_name: 'QCutter-windows-mingw'
+          - name: ubuntu
+            os: ubuntu-22.04
+            qt: '5.15'
+            qt_arch: 'gcc_64'
+            qt_modules: ''
+            generator: 'Ninja'
+            config: 'Release'
+            artifact_dir: 'build/QCutter'
+            artifact_name: 'QCutter-linux'
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python (vcpkg uses Python)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install vcpkg
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$GITHUB_WORKSPACE/vcpkg"
+          "$GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+        shell: bash
+
+      - name: Install vcpkg dependencies
+        run: |
+          "$GITHUB_WORKSPACE/vcpkg/vcpkg" install \
+            --triplet=${{ matrix.os == 'windows-latest' && 'x64-windows' || matrix.os == 'ubuntu-22.04' && 'x64-linux' || 'x64-osx' }} \
+            tiff sqlite3 nlohmann-json
+
+      - name: Cache Qt
+        id: cache-qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ matrix.qt }}
+          host: ${{ runner.os == 'Windows' && 'windows' || runner.os == 'macOS' && 'mac' || 'linux' }}
+          target: desktop
+          arch: ${{ matrix.qt_arch }}
+          modules: ${{ matrix.qt_modules }}
+          cache: true
+
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -G "${{ matrix.generator }}" \
+            -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
+            -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+            -DCMAKE_PREFIX_PATH="${{ steps.cache-qt.outputs.QT_PREFIX_PATH }}"
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.config }} -j 2
+
+      - name: Strip (linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: strip -s build/QCutter || true
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p stage
+          cp -r ${{ matrix.artifact_dir }}/* stage/ 2>/dev/null || true
+          # 如果 Qt DLL 是动态链接的 (Windows), 复制必要的 Qt5*.dll
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            QT_BIN="${{ steps.cache-qt.outputs.QT_PREFIX_PATH }}/bin"
+            for d in Qt5Core Qt5Gui Qt5Widgets Qt5Network Qt5Sql Qt5PrintSupport \
+                     Qt5Concurrent libtiff-5 libsqlite3-0; do
+              find "$QT_BIN" -maxdepth 1 -name "${d}.dll" -exec cp {} stage/ \; 2>/dev/null || true
+            done
+            # vcpkg 的 DLL
+            find "$GITHUB_WORKSPACE/vcpkg/installed" -name "*.dll" -exec cp {} stage/ \; 2>/dev/null || true
+            # platforms 目录 (QGuiApplication 需要)
+            PLUGINS="${{ steps.cache-qt.outputs.QT_PREFIX_PATH }}/plugins"
+            if [ -d "$PLUGINS/platforms" ]; then
+              mkdir -p stage/platforms
+              cp "$PLUGINS/platforms/qwindows.dll" stage/platforms/ 2>/dev/null || true
+            fi
+          fi
+          # 7z 打包 (windows 用 7z, 其他用 tar.gz)
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            7z a "${{ matrix.artifact_name }}.7z" stage/* stage/platforms 2>&1
+          else
+            tar czf "${{ matrix.artifact_name }}.tar.gz" -C stage .
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            ${{ matrix.artifact_name }}.7z
+            ${{ matrix.artifact_name }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/QCutter-windows-msvc/QCutter-windows-msvc.7z
+            artifacts/QCutter-windows-mingw/QCutter-windows-mingw.7z
+            artifacts/QCutter-linux/QCutter-linux.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: false
