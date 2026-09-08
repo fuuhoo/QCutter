@@ -5,11 +5,6 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      ref:
-        description: 'Git ref to build (branch/tag/SHA). Default: HEAD'
-        required: false
-        default: ''
 
 permissions:
   contents: write
@@ -23,57 +18,67 @@ jobs:
         include:
           - name: windows-msvc
             os: windows-latest
+            vcpkg_triplet: x64-windows
             qt: '5.15'
             qt_arch: 'win64_msvc2019_64'
             qt_modules: 'qtimageformats'
-            generator: 'Ninja'
-            config: 'Release'
-            artifact_dir: 'build/QCutter'
+            artifact_ext: '7z'
             artifact_name: 'QCutter-windows-msvc'
           - name: windows-mingw
             os: windows-latest
+            vcpkg_triplet: x64-mingw-dynamic
             qt: '5.15'
             qt_arch: 'win64_mingw81'
             qt_modules: ''
-            generator: 'Ninja'
-            config: 'Release'
-            artifact_dir: 'build/QCutter'
+            artifact_ext: '7z'
             artifact_name: 'QCutter-windows-mingw'
           - name: ubuntu
             os: ubuntu-22.04
+            vcpkg_triplet: x64-linux
             qt: '5.15'
             qt_arch: 'gcc_64'
             qt_modules: ''
-            generator: 'Ninja'
-            config: 'Release'
-            artifact_dir: 'build/QCutter'
+            artifact_ext: 'tar.gz'
             artifact_name: 'QCutter-linux'
 
     runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python (vcpkg uses Python)
-        uses: actions/setup-python@v5
+      - name: Cache vcpkg binary caches
+        uses: actions/cache@v4
         with:
-          python-version: '3.11'
+          path: |
+            ~/vcpkg
+            ~/.cache/vcpkg
+          key: vcpkg-${{ matrix.os }}-${{ matrix.vcpkg_triplet }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ matrix.os }}-${{ matrix.vcpkg_triplet }}-
 
       - name: Install vcpkg
         run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$GITHUB_WORKSPACE/vcpkg"
-          "$GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
-        shell: bash
+          if [ ! -x "$GITHUB_WORKSPACE/vcpkg/vcpkg" ]; then
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$GITHUB_WORKSPACE/vcpkg"
+            "$GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          else
+            echo "vcpkg already installed"
+          fi
 
       - name: Install vcpkg dependencies
+        env:
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
         run: |
           "$GITHUB_WORKSPACE/vcpkg/vcpkg" install \
-            --triplet=${{ matrix.os == 'windows-latest' && 'x64-windows' || matrix.os == 'ubuntu-22.04' && 'x64-linux' || 'x64-osx' }} \
+            --triplet=${{ matrix.vcpkg_triplet }} \
             tiff sqlite3 nlohmann-json
 
-      - name: Cache Qt
-        id: cache-qt
+      - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
           version: ${{ matrix.qt }}
@@ -84,45 +89,50 @@ jobs:
           cache: true
 
       - name: Configure
-        shell: bash
         run: |
           cmake -S . -B build \
-            -G "${{ matrix.generator }}" \
-            -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" \
-            -DCMAKE_PREFIX_PATH="${{ steps.cache-qt.outputs.QT_PREFIX_PATH }}"
+            -DCMAKE_PREFIX_PATH="${{ steps.Install-Qt.outputs.QT_PREFIX_PATH }}"
 
       - name: Build
-        run: cmake --build build --config ${{ matrix.config }} -j 2
+        run: cmake --build build -j 2
 
-      - name: Strip (linux)
+      - name: Strip binary (linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: strip -s build/QCutter || true
+        run: |
+          find build -maxdepth 2 -name 'QCutter*' -type f -executable -exec strip -s {} \; 2>/dev/null || true
 
       - name: Package
-        shell: bash
         run: |
+          rm -rf stage
           mkdir -p stage
-          cp -r ${{ matrix.artifact_dir }}/* stage/ 2>/dev/null || true
-          # 如果 Qt DLL 是动态链接的 (Windows), 复制必要的 Qt5*.dll
+          # 把 build 根下的 QCutter 可执行文件复制到 stage
+          find build -maxdepth 2 -name 'QCutter*' -type f -executable -exec cp {} stage/ \; 2>/dev/null || true
+          find build -maxdepth 2 -name 'QCutter.exe' -exec cp {} stage/ \; 2>/dev/null || true
+          # Windows: 复制 Qt + vcpkg DLL
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            QT_BIN="${{ steps.cache-qt.outputs.QT_PREFIX_PATH }}/bin"
+            QT_BIN="${{ steps.Install-Qt.outputs.QT_PREFIX_PATH }}/bin"
             for d in Qt5Core Qt5Gui Qt5Widgets Qt5Network Qt5Sql Qt5PrintSupport \
-                     Qt5Concurrent libtiff-5 libsqlite3-0; do
+                     Qt5Concurrent; do
               find "$QT_BIN" -maxdepth 1 -name "${d}.dll" -exec cp {} stage/ \; 2>/dev/null || true
             done
-            # vcpkg 的 DLL
             find "$GITHUB_WORKSPACE/vcpkg/installed" -name "*.dll" -exec cp {} stage/ \; 2>/dev/null || true
-            # platforms 目录 (QGuiApplication 需要)
-            PLUGINS="${{ steps.cache-qt.outputs.QT_PREFIX_PATH }}/plugins"
+            # platforms/qwindows.dll 必须放在 platforms/ 子目录
+            PLUGINS="${{ steps.Install-Qt.outputs.QT_PREFIX_PATH }}/plugins"
             if [ -d "$PLUGINS/platforms" ]; then
               mkdir -p stage/platforms
               cp "$PLUGINS/platforms/qwindows.dll" stage/platforms/ 2>/dev/null || true
             fi
           fi
-          # 7z 打包 (windows 用 7z, 其他用 tar.gz)
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            7z a "${{ matrix.artifact_name }}.7z" stage/* stage/platforms 2>&1
+          # 打包
+          if [ "${{ matrix.artifact_ext }}" = "7z" ]; then
+            (cd stage && 7z a "../${{ matrix.artifact_name }}.7z" . 2>&1) || {
+              # 7z 未装时用 zip 兜底
+              (cd stage && zip -r "../${{ matrix.artifact_name }}.zip" .)
+              mv "${{ matrix.artifact_name }}.zip" "${{ matrix.artifact_name }}.7z"
+            }
           else
             tar czf "${{ matrix.artifact_name }}.tar.gz" -C stage .
           fi
@@ -131,9 +141,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: |
-            ${{ matrix.artifact_name }}.7z
-            ${{ matrix.artifact_name }}.tar.gz
+          path: ${{ matrix.artifact_name }}.${{ matrix.artifact_ext }}
           if-no-files-found: error
 
   release:
@@ -146,6 +154,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: List artifacts
+        run: ls -la artifacts/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
