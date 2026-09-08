@@ -26,7 +26,7 @@
 #include <cstdint>
 #include <cmath>
 #include <cstring>
-#include <experimental/filesystem>
+#include "util/fs_compat.h"
 #include <fstream>
 #include <future>
 #include <limits>
@@ -39,8 +39,6 @@
 #include <nlohmann/json.hpp>
 
 namespace qcutter {
-
-namespace fs = std::experimental::filesystem;
 
 // ------------------ 预乘 alpha 工具 ------------------
 

@@ -13,8 +13,6 @@
 
 namespace qcutter {
 
-namespace fs = std::experimental::filesystem;
-
 PreviewServer& PreviewServer::instance() {
     static PreviewServer s;
     return s;

@@ -2,14 +2,12 @@
 #pragma once
 #include <array>
 #include <cstdint>
-#include <experimental/filesystem>
+#include "util/fs_compat.h"
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace qcutter {
-
-namespace fs = std::experimental::filesystem;
 
 /// GeoTIFF 地理参考. 坐标统一到 EPSG:3857, sx > 0, sy < 0 (北向上).
 struct GeoRef {

@@ -2,13 +2,10 @@
 #include "util/paths.h"
 #include "util/logger.h"
 #include <sqlite3.h>
-#include <experimental/filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
 
 namespace qcutter {
-
-namespace fs = std::experimental::filesystem;
 
 HistoryStore& HistoryStore::instance() {
     static HistoryStore h;

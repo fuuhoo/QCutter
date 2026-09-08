@@ -3,13 +3,11 @@
 #include "engine/alpha.h"
 #include "engine/planner.h"
 #include <cstdint>
-#include <experimental/filesystem>
+#include "util/fs_compat.h"
 #include <string>
 #include <vector>
 
 namespace qcutter {
-
-namespace fs = std::experimental::filesystem;
 
 inline constexpr const char* MANIFEST_NAME    = "manifest.json";
 inline constexpr const char* PREVIEW_HTML_NAME = "preview.html";

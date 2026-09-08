@@ -34,8 +34,6 @@
 
 namespace qcutter {
 
-namespace fs = std::experimental::filesystem;
-
 // ---------------- Preview chunk 缓存 (进程级) ----------------
 // swCutter 风格: 同一 TIFF 的 chunk RGBA 跨多次 makePreview 调用共享,
 // 重复预览只采样像素不解码. 4GB 字节预算, FIFO 淘汰.

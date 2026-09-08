@@ -1,10 +1,8 @@
 // 应用数据目录解析 (Windows / macOS / Linux).
 #pragma once
-#include <experimental/filesystem>
+#include "util/fs_compat.h"
 
 namespace qcutter {
-
-namespace fs = std::experimental::filesystem;
 
 inline constexpr const char* APP_DIR_NAME = "QCutter";
 

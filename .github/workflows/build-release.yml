@@ -17,7 +17,7 @@ jobs:
       matrix:
         include:
           - name: windows-msvc
-            os: windows-latest
+            os: windows-2022
             vcpkg_triplet: x64-windows
             qt: '5.15'
             qt_arch: 'win64_msvc2019_64'
@@ -26,7 +26,7 @@ jobs:
             artifact_ext: '7z'
             artifact_name: 'QCutter-windows-msvc'
           - name: windows-mingw
-            os: windows-latest
+            os: windows-2022
             vcpkg_triplet: x64-mingw-dynamic
             qt: '5.15'
             qt_arch: 'win64_mingw81'

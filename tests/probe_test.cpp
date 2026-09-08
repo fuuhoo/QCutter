@@ -5,9 +5,7 @@
 #include "util/paths.h"
 #include <cstdio>
 #include <cstdlib>
-#include <experimental/filesystem>
-
-namespace fs = std::experimental::filesystem;
+#include "util/fs_compat.h"
 
 int main(int argc, char** argv) {
     if (argc < 2) {

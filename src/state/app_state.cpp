@@ -15,8 +15,6 @@
 
 namespace qcutter {
 
-namespace fs = std::experimental::filesystem;
-
 static fs::path settingsPath() {
     auto d = appDataDir();
     fs::create_directories(d);

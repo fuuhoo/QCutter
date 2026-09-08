@@ -20,13 +20,11 @@
 #include <QImage>
 #include <QTcpServer>
 
-#include <experimental/filesystem>
+#include "util/fs_compat.h"
 #include <memory>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-
-namespace fs = std::experimental::filesystem;
 
 #ifdef _WIN32
 #include <windows.h>
@@ -154,7 +152,7 @@ static int runCli(int argc, char** argv) {
     // Step 2: probeGeoref
     std::fprintf(stderr, "[cli] step 2: probeGeoref\n");
     try {
-        auto geo = qcutter::probeGeoref(std::experimental::filesystem::path(input.toStdString()));
+        auto geo = qcutter::probeGeoref(fs::path(input.toStdString()));
         if (geo) {
             std::fprintf(stderr, "[cli]   georef: mx0=%.3f my_top=%.3f sx=%.6f sy=%.6f epsg=%u\n",
                          geo->mx0, geo->my_top, geo->sx, geo->sy, geo->src_epsg);
@@ -192,7 +190,7 @@ static int runCli(int argc, char** argv) {
     if (read_tiles > 0) {
         std::fprintf(stderr, "[cli] step 4: stress-decode first %u tiles\n", read_tiles);
         try {
-            qcutter::SourceReader r(std::experimental::filesystem::path(input.toStdString()));
+            qcutter::SourceReader r(fs::path(input.toStdString()));
             for (std::uint32_t i = 0; i < read_tiles; ++i) {
                 auto c = r.decodeChunkPublic(i);
                 if (!c) {
@@ -233,8 +231,8 @@ static int runCutCli(int argc, char** argv,
     QString outputDir = QString::fromLocal8Bit(argv[3]);
 
     qcutter::CutParams p;
-    p.source = std::experimental::filesystem::path(input.toStdString());
-    p.output = std::experimental::filesystem::path(outputDir.toStdString());
+    p.source = fs::path(input.toStdString());
+    p.output = fs::path(outputDir.toStdString());
     bool keepServer = false;
     for (int i = 4; i < argc; ++i) {
         if (std::strcmp(argv[i], "--tile-size") == 0 && i + 1 < argc) {

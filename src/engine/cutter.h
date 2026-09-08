@@ -5,7 +5,7 @@
 #include "engine/planner.h"
 #include <atomic>
 #include <cstdint>
-#include <experimental/filesystem>
+#include "util/fs_compat.h"
 #include <functional>
 #include <memory>
 #include <optional>
@@ -13,8 +13,6 @@
 #include <vector>
 
 namespace qcutter {
-
-namespace fs = std::experimental::filesystem;
 
 struct CutParams {
     fs::path source;

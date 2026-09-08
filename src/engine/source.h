@@ -3,7 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <deque>
-#include <experimental/filesystem>
+#include "util/fs_compat.h"
 #include <limits>
 #include <map>
 #include <memory>
@@ -18,8 +18,6 @@ struct tiff;
 typedef struct tiff TIFF;
 
 namespace qcutter {
-
-namespace fs = std::experimental::filesystem;
 
 class SourceReader;
 

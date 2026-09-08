@@ -35,11 +35,9 @@
 #include <QtConcurrent/QtConcurrent>
 #include <QFutureWatcher>
 
-#include <experimental/filesystem>
+#include "util/fs_compat.h"
 
 namespace qcutter {
-
-namespace fs = std::experimental::filesystem;
 
 // --- TaskDraft helpers ---
 
