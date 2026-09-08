@@ -82,6 +82,7 @@ jobs:
           "$GITHUB_WORKSPACE/vcpkg/vcpkg" install
 
       - name: Install Qt
+        id: install-qt
         uses: jurplel/install-qt-action@v4
         with:
           version: ${{ matrix.qt }}
@@ -98,6 +99,9 @@ jobs:
           arch: x64
 
       - name: Configure
+        env:
+          Qt5_DIR: ${{ env.Qt5_DIR }}
+          CMAKE_PREFIX_PATH: ${{ env.QT_ROOT_DIR }}
         run: |
           # windows-msvc uses ilammy/msvc-dev-cmd (sets up cl.exe in PATH).
           # Ninja with MSVC tools works; cmake finds cl.exe via PATH.
@@ -105,7 +109,7 @@ jobs:
             -G ${{ matrix.generator }} \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" \
-            -DCMAKE_PREFIX_PATH="${{ steps.Install-Qt.outputs.QT_PREFIX_PATH }}"
+            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
 
       - name: Build
         run: cmake --build build --config Release -j 2
@@ -116,6 +120,8 @@ jobs:
           find build -maxdepth 2 -name 'QCutter*' -type f -executable -exec strip -s {} \; 2>/dev/null || true
 
       - name: Package
+        env:
+          QT_ROOT_DIR: ${{ env.QT_ROOT_DIR }}
         run: |
           rm -rf stage
           mkdir -p stage
@@ -123,23 +129,29 @@ jobs:
           # Visual Studio (Release config): build/Release/QCutter.exe
           find build -maxdepth 3 \( -name 'QCutter' -o -name 'QCutter.exe' \) \
             -type f -executable -exec cp {} stage/ \; 2>/dev/null || true
-          # Windows: 复制 Qt + vcpkg DLL (Qt 安装器把 Qt5*.dll 放在 QT_PREFIX_PATH 根目录)
+          echo "--- stage contents before DLL copy ---"
+          ls -la stage
+          # Windows: 复制 Qt + vcpkg DLL (Qt 安装器把 Qt5*.dll 放在 QT_ROOT_DIR 根目录)
           if [ "${{ matrix.os }}" = "windows-2022" ]; then
-            QT_ROOT="${{ steps.Install-Qt.outputs.QT_PREFIX_PATH }}"
-            # Qt5*.dll + 一些 vcpkg DLL (libtiff-5, sqlite3 等)
-            for d in Qt5Core Qt5Gui Qt5Widgets Qt5Network Qt5Sql Qt5PrintSupport \
-              Qt5Concurrent libtiff-5 libsqlite3-0; do
-              find "$QT_ROOT" -maxdepth 1 -name "${d}.dll" -exec cp {} stage/ \; 2>/dev/null || true
-            done
+            echo "QT_ROOT_DIR=$QT_ROOT_DIR"
+            if [ -n "$QT_ROOT_DIR" ] && [ -d "$QT_ROOT_DIR" ]; then
+              for d in Qt5Core Qt5Gui Qt5Widgets Qt5Network Qt5Sql Qt5PrintSupport \
+                Qt5Concurrent; do
+                find "$QT_ROOT_DIR" -maxdepth 1 -name "${d}.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
+              done
+              # platforms/qwindows.dll 必须放在 platforms/ 子目录
+              if [ -d "$QT_ROOT_DIR/plugins/platforms" ]; then
+                mkdir -p stage/platforms
+                cp -v "$QT_ROOT_DIR/plugins/platforms/qwindows.dll" stage/platforms/ 2>/dev/null || true
+              fi
+            fi
             # vcpkg manifest 模式装到 source tree 的 vcpkg_installed/<triplet>/bin
-            find "$GITHUB_WORKSPACE/QCutter/vcpkg_installed" -name "*.dll" -exec cp {} stage/ \; 2>/dev/null || true
-            # platforms/qwindows.dll 必须放在 platforms/ 子目录
-            PLUGINS="$QT_ROOT/plugins"
-            if [ -d "$PLUGINS/platforms" ]; then
-              mkdir -p stage/platforms
-              cp "$PLUGINS/platforms/qwindows.dll" stage/platforms/ 2>/dev/null || true
+            if [ -d "$GITHUB_WORKSPACE/QCutter/vcpkg_installed" ]; then
+              find "$GITHUB_WORKSPACE/QCutter/vcpkg_installed" -name "*.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
             fi
           fi
+          echo "--- stage contents before archive ---"
+          ls -la stage
           # 打包
           if [ "${{ matrix.artifact_ext }}" = "7z" ]; then
             (cd stage && 7z a "../${{ matrix.artifact_name }}.7z" . 2>&1) || {
