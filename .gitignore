@@ -1,0 +1,52 @@
+# Build dirs
+build/
+build-*/
+cmake-build-*/
+*.user
+*.user.*
+
+# vcpkg (auto-managed)
+.vcpkg-cache/
+vcpkg_installated/  # placeholder
+vcpkg_installed/
+
+# IDE
+.vscode/
+.vs/
+.idea/
+
+# Generated
+*.moc
+*.o
+*.obj
+*.a
+*.lib
+*.exe
+*.dll
+*.so
+*.dylib
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+_deps/
+Testing/
+compile_commands.json
+
+# Logs / cache
+*.log
+.cache/
+
+# Maplibre assets (auto-downloaded if missing)
+assets/maplibre/*.js
+assets/maplibre/*.css
+!assets/maplibre/*.md
+
+# Test/CI scratch
+test_*.cpp
+test_*.exe
+*.TIF
+clip.exe

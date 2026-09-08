@@ -1,0 +1,67 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_PREFIX_PATH": "C:/Qt/Qt5.12.12/5.12.12/mingw73_64"
+      }
+    },
+    {
+      "name": "mingw73_64",
+      "displayname": "MinGW 7.3.0 64-bit (Qt 5.12.12)",
+      "description": "Build QCutter with MinGW 7.3.0 64-bit bundled with Qt 5.12.12",
+      "inherits": "base",
+      "environment": {
+        "PATH": "C:/Qt/Qt5.12.12/Tools/mingw730_64/bin;C:/Qt/Qt5.12.12/5.12.12/mingw73_64/bin;$penv{PATH}"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "C:/Qt/Qt5.12.12/Tools/mingw730_64/bin/gcc.exe",
+        "CMAKE_CXX_COMPILER": "C:/Qt/Qt5.12.12/Tools/mingw730_64/bin/g++.exe",
+        "CMAKE_PREFIX_PATH": "C:/Qt/Qt5.12.12/5.12.12/mingw73_64",
+        "QT_QMAKE_EXECUTABLE": "C:/Qt/Qt5.12.12/5.12.12/mingw73_64/bin/qmake.exe"
+      }
+    },
+    {
+      "name": "msvc2017_64",
+      "displayname": "MSVC 2017 64-bit (Qt 5.12.12)",
+      "description": "Build QCutter with MSVC 2017 64-bit bundled with Qt 5.12.12",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "C:/Qt/Qt5.12.12/5.12.12/msvc2017_64",
+        "QT_QMAKE_EXECUTABLE": "C:/Qt/Qt5.12.12/5.12.12/msvc2017_64/bin/qmake.exe"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug-mingw73_64",
+      "configurePreset": "mingw73_64",
+      "configuration": "Debug"
+    },
+    {
+      "name": "release-mingw73_64",
+      "configurePreset": "mingw73_64",
+      "configuration": "Release"
+    },
+    {
+      "name": "debug-msvc2017_64",
+      "configurePreset": "msvc2017_64",
+      "configuration": "Debug"
+    },
+    {
+      "name": "release-msvc2017_64",
+      "configurePreset": "msvc2017_64",
+      "configuration": "Release"
+    }
+  ]
+}
