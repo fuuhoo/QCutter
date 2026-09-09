@@ -107,6 +107,11 @@ set(APP_SOURCES
 )
 add_executable(QCutter ${APP_SOURCES}
     src/test.h src/test.cpp)
+# GUI 程序: 不分配 console 窗口, 启动时不会出现黑框
+# (CLI 模式 --cut/--cli 仍走 stderr 输出, 不会影响)
+if(WIN32)
+    set_target_properties(QCutter PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
 target_link_libraries(QCutter
     PRIVATE
         QCutterCore

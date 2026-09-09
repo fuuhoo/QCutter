@@ -148,6 +148,13 @@ jobs:
                 mkdir -p stage/platforms
                 cp -v "$QT_ROOT_DIR/plugins/platforms/qwindows.dll" stage/platforms/ 2>/dev/null || true
               fi
+              # MinGW 运行时 DLL (windows-mingw job 必需, msvc 不需要)
+              # mingw build 的 Qt5*.dll 链接到 libstdc++/libgcc/winpthread
+              if [ "${{ matrix.name }}" = "windows-mingw" ] && [ -d "$QT_ROOT_DIR/bin" ]; then
+                for d in libgcc_s_seh-1 libstdc++-6 libwinpthread-1; do
+                  find "$QT_ROOT_DIR/bin" -maxdepth 1 -name "${d}.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
+                done
+              fi
             fi
             # vcpkg manifest 模式装到 source tree 的 vcpkg_installed/<triplet>/bin
             if [ -d "$GITHUB_WORKSPACE/QCutter/vcpkg_installed" ]; then

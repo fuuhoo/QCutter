@@ -23,6 +23,30 @@
 #include "util/fs_compat.h"
 #include <memory>
 #include <cstdio>
+#if defined(_WIN32)
+#  include <windows.h>
+#  include <cstring>
+#endif
+
+// CLI 模式: GUI build (/SUBSYSTEM:WINDOWS) 没有 console 窗口, 需要主动分配一个
+// 并重新打开 stderr/stdout/stdin 到新 console 的句柄.
+static void ensureConsoleForCli()
+{
+#if defined(_WIN32)
+    // 用户从 cmd/终端启动时父进程有 console, 直接复用父 console (即返回true).
+    // 双击启动时没有父 console, 需要 AllocConsole 创建一个.
+    if (AttachConsole(ATTACH_PARENT_PROCESS) == 0) {
+        AllocConsole();
+    }
+    // 重新打开 CRT 文件流到新 console, 这样 stderr 输出可见.
+    FILE* dummy = nullptr;
+    freopen_s(&dummy, "CONIN$",  "r", stdin);
+    freopen_s(&dummy, "CONOUT$", "w", stdout);
+    freopen_s(&dummy, "CONOUT$", "w", stderr);
+    // 让 std::cout/std::cerr 同步到 C 流.
+    std::setvbuf(stderr, nullptr, _IOLBF, 0);
+#endif
+}
 #include <cstdlib>
 #include <cstring>
 
@@ -309,6 +333,7 @@ int main(int argc, char** argv) {
 
     // CLI 模式不启动 UI. 必须在 QApplication 之前处理.
     if (argc >= 2 && std::strcmp(argv[1], "--cut") == 0) {
+        ensureConsoleForCli();
         QApplication app(argc, argv);
         QCoreApplication::setOrganizationName("QCutter");
         QCoreApplication::setOrganizationDomain("qcutter.app");
@@ -323,6 +348,7 @@ int main(int argc, char** argv) {
         return rc;
     }
     if (argc >= 2 && std::strcmp(argv[1], "--cli") == 0) {
+        ensureConsoleForCli();
         // QApplication 仍需要 (TaskManager 内部用了 QString), 但不显示任何 widget.
         QApplication app(argc, argv);
         QCoreApplication::setOrganizationName("QCutter");
