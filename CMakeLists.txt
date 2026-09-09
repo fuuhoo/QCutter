@@ -30,6 +30,13 @@ else()
     # 解决: 静态链接 libgcc/libstdc++ 进 exe, 这样 QCutter.exe 完全不依赖
     # Qt 自带的 libstdc++-6.dll (避免 ABI mismatch).
     add_link_options(-static-libgcc -static-libstdc++)
+    # mingw GCC 7.3.0 的 libstdc++.a 在旧 ABI (_GLIBCXX_USE_CXX11_ABI=0)
+    # 下, cow-stdexcept.o 里 std::runtime_error/logic_error 的拷贝构造函数
+    # 是 strong 符号 (T), 而任何带 try/catch (const std::exception&) 或
+    # 继承 std::runtime_error 的 TU 在编译时也会生成同名 strong 符号.
+    # 链接时两边都进 exe, 报 multiple definition.
+    # 允许重复定义, ld 会保留先遇到的版本 (来自 libstdc++.a 的官方实现).
+    add_link_options(-Wl,--allow-multiple-definition)
 endif()
 
 # Qt 5.15.2 mingw81 是用 GCC 8.1.0 编译的, 默认 _GLIBCXX_USE_CXX11_ABI=0
@@ -147,18 +154,95 @@ target_include_directories(QCutter PRIVATE
 
 # MapLibre 资源 (运行时由 writer.cpp 从 assets/ 拷贝到输出目录).
 # assets/maplibre/{*.js, *.css} 在 .gitignore 中 (运行时由代码按需下载),
-# 所以源码树里 assets/ 可能为空或缺失. 用 CMake script 守卫跳过防止 build 报错.
-add_custom_command(
-    TARGET QCutter POST_BUILD
-    COMMAND ${CMAKE_COMMAND}
-        -DSRC="${CMAKE_CURRENT_SOURCE_DIR}/assets"
-        -DDST="$<TARGET_FILE_DIR:QCutter>/assets"
-        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CopyAssetsIfPresent.cmake"
-    COMMENT "Copying MapLibre assets to build directory (skipped if absent)"
-    VERBATIM
-)
+# 所以源码树里 assets/ 可能为空或缺失.
+# 注意: 不要在这里加 add_custom_command 拷贝 assets 到 build 目录 — 那样
+# 会和下面的 DeployRelease 的 add_custom_command 一起被 ninja 合并成
+# "cmd.exe /C A && B", 再被 link rule 包一层 cmd.exe /C 形成嵌套,
+# cmd 解析嵌套引号失败导致整个 build 报 FAILED (即使 g++ 实际成功).
+# DeployRelease.cmake 最后一步已经 include 了 CopyAssetsIfPresent,
+# 一次 POST_BUILD 只有一个 cmd.exe /C 包装.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets")
     install(DIRECTORY assets DESTINATION share/qcutter)
+endif()
+
+# ----------------------------------------------------------------------------
+# Release 打包: 把 QCutter.exe + Qt DLL + vcpkg 运行时 + assets
+# 收集到 build/.../Release/package/, 用户双击 exe 即可运行.
+# 只在 Release 配置 (NDEBUG) 下触发, Debug 保持不变 (用 IDE 启动更顺手).
+# ----------------------------------------------------------------------------
+if(WIN32 AND NOT MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    # Qt bin 目录: Qt5_DIR 是 .../mingw73_64/lib/cmake/Qt5, 回溯到 mingw73_64/
+    get_filename_component(_qt_prefix "${Qt5_DIR}" DIRECTORY)   # .../lib/cmake
+    get_filename_component(_qt_prefix "${_qt_prefix}" DIRECTORY) # .../lib
+    get_filename_component(_qt_prefix "${_qt_prefix}" DIRECTORY) # .../mingw73_64
+    set(_qt_bin "${_qt_prefix}/bin")
+
+    # vcpkg bin 目录: $VCPKG_INSTALLED_DIR/$VCPKG_TARGET_TRIPLET/bin
+    # 注意 vcpkg mingw dynamic 模板不带 release/debug 子目录, 所有 DLL
+    # 都在 bin/ 下 (release 和 debug 的 .lib 同样混放, 链接器按需选).
+    # 路径在 POST_BUILD 时可能还没实例化 (vcpkg_installed 在某些
+    # Release build 里缺失), 脚本内部会做 fallback.
+    set(_vcpkg_bin "")
+    if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
+        set(_vcpkg_bin
+            "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin")
+    endif()
+    # Debug 目录下的 vcpkg_installed 作为 fallback, 同一 triplet DLL 一致
+    set(_vcpkg_fallback "")
+    if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
+        get_filename_component(_build_root
+            "${CMAKE_BINARY_DIR}" DIRECTORY)               # .../Desktop_...
+        set(_vcpkg_fallback
+            "${_build_root}-Debug/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/bin")
+    endif()
+
+    # mingw730_64 bin: 从编译器路径推. mingw730 g++ 在
+    # .../Tools/mingw730_64/bin/g++.exe, bin 目录就是它的同级.
+    get_filename_component(_mingw_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+
+    # conda bin (libtiff / sqlite3 等可能从 conda 链接): 检测 CONDA_PREFIX
+    # 环境变量 (conda activate 时会设). 若 cmake 配置时找不到, 脚本端
+    # 用启发式找 C:/Users/<user>/miniconda3/Library/bin 作为兜底.
+    set(_conda_bin "")
+    if(DEFINED ENV{CONDA_PREFIX})
+        set(_conda_bin "$ENV{CONDA_PREFIX}/Library/bin")
+    endif()
+
+    # MSYS2 mingw64 bin (链接器若用了 MSYS2 的 libsqlite3.dll.a /
+    # libtiff.dll.a, 运行时 dll 在这里). 启发式: 找 PATH 上的 mingw64 bin.
+    set(_msys2_bin "")
+    if(DEFINED ENV{MSYS2_ROOT})
+        set(_msys2_bin "$ENV{MSYS2_ROOT}/mingw64/bin")
+    elseif(EXISTS "C:/msys64/mingw64/bin")
+        set(_msys2_bin "C:/msys64/mingw64/bin")
+    endif()
+
+    # 用 add_custom_target 而不是 add_custom_command(POST_BUILD):
+    # 后者会让 ninja 把 deploy 嵌入 CXX_EXECUTABLE_LINKER rule 的
+    # $POST_BUILD 字段, 而 link rule 模板自身又包了一层
+    # "cmd.exe /C $PRE_LINK && g++ ... && $POST_BUILD".
+    # 如果 $POST_BUILD 内部还包含嵌套 cmd.exe /C (例如 Qt Creator
+    # vcpkg integration 加的 "vcpkg z-applocal"), 整体会成为嵌套
+    #   cmd.exe /C "cmd.exe /C ... && cmd.exe /C ..."
+    # 未转义引号导致 cmd 解析失败, ninja 报 FAILED (虽然 g++ 实际成功).
+    # 改成独立 target 后, ninja 给 link rule 一个空的 POST_BUILD,
+    # 给 deploy target 单独一个 command edge, 没有嵌套.
+    add_custom_target(deploy_release ALL
+        COMMAND ${CMAKE_COMMAND}
+            -DEXE="$<TARGET_FILE:QCutter>"
+            -DPACKAGE_DIR="$<TARGET_FILE_DIR:QCutter>/package"
+            -DQT_BIN_DIR="${_qt_bin}"
+            -DVCPKG_BIN_DIR="${_vcpkg_bin}"
+            -DVCPKG_FALLBACK="${_vcpkg_fallback}"
+            -DMINGW_BIN_DIR="${_mingw_bin}"
+            -DMSYS2_BIN_DIR="${_msys2_bin}"
+            -DCONDA_BIN_DIR="${_conda_bin}"
+            -DASSETS_SRC="${CMAKE_CURRENT_SOURCE_DIR}/assets"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/DeployRelease.cmake"
+        DEPENDS QCutter
+        COMMENT "Building portable Release package (Qt DLLs + vcpkg runtime + assets)"
+        VERBATIM
+    )
 endif()
 
 # ----------------------------------------------------------------------------

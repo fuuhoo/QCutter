@@ -17,6 +17,7 @@
 #include <QByteArray>
 #include <QImage>
 #include <QIODevice>
+#include <QThread>
 #include <QtCore/QtMath>
 
 #include <algorithm>
@@ -748,7 +749,11 @@ CutSummary runCutWithControl(const CutParams& params,
     std::thread ticker_thread([&]() {
         std::optional<std::uint32_t> last_level;
         while (!workers_done.load() && !control->cancel.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(120));
+            // 用 QThread::msleep 代替 std::this_thread::sleep_for:
+            // mingw730_64 (GCC 7.3.0) 的 libstdc++.a 在 -O3 下会把
+            // sleep_for 内联成 nanosleep64, 但该运行时符号在 Qt 5.12
+            // 自带的 mingw-w64 v5 中不存在, Release 链接报 undefined.
+            QThread::msleep(120);
             const auto lv_raw = current_level.load();
             const auto lv = (lv_raw == std::numeric_limits<std::uint32_t>::max()) ? 0u : lv_raw;
             if (!last_level || *last_level != lv) {
@@ -782,7 +787,7 @@ CutSummary runCutWithControl(const CutParams& params,
 
     auto process_job_with_reader = [&](SourceReader* reader_override, const Job& job) {
         while (control->paused.load() && !control->cancel.load())
-            std::this_thread::sleep_for(std::chrono::milliseconds(120));
+            QThread::msleep(120);
         if (control->cancel.load()) return;
         current_level.store(job.z);
         const auto rel = tileRelPath(params.scheme, job.z, job.tx, job.ty, job.tiles_y);
