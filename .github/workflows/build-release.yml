@@ -98,13 +98,31 @@ jobs:
           # 在 vcpkg 内置 x64-mingw-dynamic 基础上强制 _GLIBCXX_USE_CXX11_ABI=0,
           # 让 vcpkg 编译的 tiff/sqlite 等依赖与 Qt 5.12 + QCutter 自身 ABI 一致.
           VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/cmake/vcpkg-triplets
+          # vcpkg 内部的 detect_compiler 走 scripts/toolchains/mingw.cmake, 它
+          # find_program(CMAKE_C_COMPILER "x86_64-w64-mingw32-gcc") — Qt 的
+          # mingw73_64/bin 下没有带目标前缀的副本 (只有 gcc.exe), find_program
+          # 返回 NOTFOUND, enable_language(C) 失败 → detect_compiler 报
+          # "unable to detect the active compiler's information".
+          # 解: 提前把 CMAKE_C/CXX_COMPILER 写入 cmake cache, mingw.cmake 里
+          # find_program 是非 cache 调用, 不会覆盖. detect_compiler 自己的
+          # CMakeLists.txt 对 Windows+Ninja 已经设了 CMAKE_C_COMPILER_WORKS=1
+          # 和 CMAKE_C_COMPILER_FORCED=1, 跳过编译器自检直接用.
+          VCPKG_CMAKE_CONFIGURE_OPTIONS: >-
+            -DCMAKE_C_COMPILER=${{ env.QT_ROOT_DIR }}/bin/gcc.exe
+            -DCMAKE_CXX_COMPILER=${{ env.QT_ROOT_DIR }}/bin/g++.exe
         run: |
           # vcpkg.json 已在仓库里, vcpkg 自动进入 manifest 模式从该文件读取依赖.
           # 不需要传包名, 也不需要 --triplet (env 设置了).
           "$GITHUB_WORKSPACE/vcpkg/vcpkg" install 2>&1 | tee vcpkg-install.log
           echo "vcpkg-install.log exit=$?"
           # 把 vcpkg buildtrees 也上传以便诊断 detect_compiler 失败原因
-          tar -czf vcpkg-buildtrees.tar.gz "$GITHUB_WORKSPACE/vcpkg/buildtrees" 2>/dev/null || true
+          tar -czf vcpkg-buildtrees.tar.gz -C "$GITHUB_WORKSPACE/vcpkg" buildtrees 2>/dev/null || true
+          # 把 detect_compiler 的关键日志单独拷一份 (buildtrees tar 可能太大上传失败)
+          mkdir -p vcpkg-debug-logs
+          find "$GITHUB_WORKSPACE/vcpkg/buildtrees/detect_compiler" -maxdepth 3 \
+            \( -name 'config-*.log' -o -name 'stdout-*.log' -o -name 'CMakeCache.txt' \) \
+            -exec cp -v {} vcpkg-debug-logs/ \; 2>/dev/null || true
+          ls -la vcpkg-debug-logs 2>&1 || true
       - name: Upload vcpkg debug info (on failure)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -113,6 +131,7 @@ jobs:
           path: |
             vcpkg-install.log
             vcpkg-buildtrees.tar.gz
+            vcpkg-debug-logs
 
       - name: Configure
         env:
