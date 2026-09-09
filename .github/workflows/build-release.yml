@@ -132,30 +132,28 @@ jobs:
           # 会重新触发 vcpkg install 装一份错的 (MSVC ABI) 到 build/.
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
           VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/cmake/vcpkg-triplets
-          # 关键: 强制 cmake + vcpkg 用 Qt 自带的 mingw73 (GCC 7.3). 默认
-          # PATH 上有 MSYS2 mingw64 (GCC 14+), 如果 cmake 自动选它, 链接的
-          # libstdc++.a 是 GCC 14 的, GCC 9+ 移除了 ABI=0 的 std::filesystem
-          # 等符号. QCutter 用 -D_GLIBCXX_USE_CXX11_ABI=0 强制 ABI=0, 链接器
-          # 找不到符号 → undefined reference, 即使编出 exe 运行时 std::filesystem
-          # 调用会用错 ABI 的符号 → 启动 segfault.
-          CMAKE_C_COMPILER: ${{ env.QT_ROOT_DIR }}/bin/gcc.exe
-          CMAKE_CXX_COMPILER: ${{ env.QT_ROOT_DIR }}/bin/g++.exe
-          # 让 vcpkg 编译依赖 (sqlite3/tiff/zlib 等) 时也用 Qt 自带的 mingw73,
-          # 不要用 MSYS2 mingw64. 否则依赖和 QCutter.exe 用不同 GCC 编, ABI 不一致.
-          VCPKG_CMAKE_CONFIGURE_OPTIONS: >-
-            -DCMAKE_C_COMPILER=${{ env.QT_ROOT_DIR }}/bin/gcc.exe
-            -DCMAKE_CXX_COMPILER=${{ env.QT_ROOT_DIR }}/bin/g++.exe
+          # QCutter 也用 MSYS2 mingw64 (GCC 14) 编, 与 vcpkg install 用的
+          # 编译器保持一致 (vcpkg 检测到 C:/mingw64/bin/x86_64-w64-mingw32-g++.
+          # exe). 不要用 Qt 自带的 mingw73 — install-qt-action v4 + arch:
+          # win64_mingw73 不装 MinGW toolchain, 只装 Qt 库 (D:/a/QCutter/Qt/
+          # 5.12.12/mingw73_64/bin/g++.exe 不存在).
+          #
+          # ABI: GCC 14 默认 cxx11 ABI=1, 但我们强制 _GLIBCXX_USE_CXX11_ABI=0
+          # (在 CMakeLists.txt:51), 与 Qt 5.12 mingw73 libstdc++ 的 ABI=0 一致.
+          # -static-libstdc++/-static-libgcc (CMakeLists.txt:32) 让 QCutter.exe
+          # 完全不依赖外部 libstdc++-6.dll, 即使 ABI=0 std::filesystem symbols
+          # 在 GCC 14 libstdc++-6.dll 里被移除, 链接器也能在 libstdc++.a (静态)
+          # 里找到旧符号.
+          CMAKE_C_COMPILER: 'C:/mingw64/bin/x86_64-w64-mingw32-gcc.exe'
+          CMAKE_CXX_COMPILER: 'C:/mingw64/bin/x86_64-w64-mingw32-g++.exe'
         run: |
-          # PATH 里 Qt mingw73 放最前, 避免 cmake 选 MSYS2 mingw64.
-          # 同时影响 g++/ld (链接阶段) 和 vcpkg 找编译器.
-          export PATH="${{ env.QT_ROOT_DIR }}/bin:$PATH"
-          # 强制指定 triplet (vcpkg cmake toolchain 优先用 CMAKE_C_COMPILER 推断,
-          # 在 windows-2022 runner 上 cl.exe 在 PATH 里就被推断成 x64-windows).
+          # PATH 里 MSYS2 mingw64 放最前, 避免 cmake 选 MSVC.
+          export PATH="/c/mingw64/bin:$PATH"
           cmake -S . -B build \
             -G ${{ matrix.generator }} \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER="${{ env.QT_ROOT_DIR }}/bin/gcc.exe" \
-            -DCMAKE_CXX_COMPILER="${{ env.QT_ROOT_DIR }}/bin/g++.exe" \
+            -DCMAKE_C_COMPILER='C:/mingw64/bin/x86_64-w64-mingw32-gcc.exe' \
+            -DCMAKE_CXX_COMPILER='C:/mingw64/bin/x86_64-w64-mingw32-g++.exe' \
             -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET="${{ matrix.vcpkg_triplet }}" \
             -DVCPKG_INSTALLED_DIR="$GITHUB_WORKSPACE/vcpkg_installed" \
@@ -190,14 +188,16 @@ jobs:
               mkdir -p stage/platforms
               cp -v "$QT_ROOT_DIR/plugins/platforms/qwindows.dll" stage/platforms/ 2>/dev/null || true
             fi
-            # mingw build 静态链接了 libstdc++/libgcc 进 exe (避免与 Qt
-            # 自带的 libstdc++-6.dll ABI mismatch), 但 libgcc 的 SEH
-            # exception handling 部分仍要 libgcc_s_seh-1.dll 运行时支持.
-            # winpthread 也是动态链接. include libstdc++-6.dll 作为
-            # 兜底 (静态链接失败时仍可启动).
-            if [ -d "$QT_ROOT_DIR/bin" ]; then
-              for d in libgcc_s_seh-1 libwinpthread-1 libstdc++-6; do
-                find "$QT_ROOT_DIR/bin" -maxdepth 1 -name "${d}.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
+            # mingw runtime DLLs 不在 $QT_ROOT_DIR/bin (install-qt-action
+            # v4 + arch: win64_mingw73 不装 MinGW toolchain). 它们在 windows-
+            # 2022 runner 自带的 C:/mingw64/bin (MSYS2 mingw64) — 我们用
+            # 这个 GCC 编 QCutter.exe.
+            # -static-libstdc++/-static-libgcc 已经在 link options 里, 所以
+            # libstdc++-6.dll / libgcc_s_seh-1.dll 不需要 (静态链进去了).
+            # libwinpthread-1.dll Qt 链了, 必须拷.
+            if [ -d /c/mingw64/bin ]; then
+              for d in libwinpthread-1 libgcc_s_seh-1 libstdc++-6; do
+                find /c/mingw64/bin -maxdepth 1 -name "${d}.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
               done
             fi
           fi
