@@ -67,6 +67,21 @@ jobs:
             echo "vcpkg already installed"
           fi
 
+      # Qt 必须先装: vcpkg install 需要用 Qt 自带的 mingw73 (GCC 7.3) 编译器,
+      # 通过 env.QT_ROOT_DIR 引用. 如果 Qt 在 vcpkg 之后装, QT_ROOT_DIR 在
+      # vcpkg install 时还没设, vcpkg 探测编译器就退回到 PATH 上的 cl.exe (MSVC),
+      # detect_compiler 失败, install 直接报错退出.
+      - name: Install Qt
+        id: install-qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ matrix.qt }}
+          host: windows
+          target: desktop
+          arch: ${{ matrix.qt_arch }}
+          modules: ${{ matrix.qt_modules }}
+          cache: true
+
       - name: Install vcpkg dependencies
         env:
           # 强制 vcpkg 用 Qt 自带的 mingw73 (GCC 7.3) 编译 sqlite3/tiff/zlib 等依赖,
@@ -87,17 +102,6 @@ jobs:
           # vcpkg.json 已在仓库里, vcpkg 自动进入 manifest 模式从该文件读取依赖.
           # 不需要传包名, 也不需要 --triplet (env 设置了).
           "$GITHUB_WORKSPACE/vcpkg/vcpkg" install
-
-      - name: Install Qt
-        id: install-qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ matrix.qt }}
-          host: windows
-          target: desktop
-          arch: ${{ matrix.qt_arch }}
-          modules: ${{ matrix.qt_modules }}
-          cache: true
 
       - name: Configure
         env:
