@@ -103,26 +103,55 @@ jobs:
           # mingw73_64/bin 下没有带目标前缀的副本 (只有 gcc.exe), find_program
           # 返回 NOTFOUND, enable_language(C) 失败 → detect_compiler 报
           # "unable to detect the active compiler's information".
-          # 解: 提前把 CMAKE_C/CXX_COMPILER 写入 cmake cache, mingw.cmake 里
-          # find_program 是非 cache 调用, 不会覆盖. detect_compiler 自己的
-          # CMakeLists.txt 对 Windows+Ninja 已经设了 CMAKE_C_COMPILER_WORKS=1
-          # 和 CMAKE_C_COMPILER_FORCED=1, 跳过编译器自检直接用.
+          # 双管齐下:
+          #   1. 提前把 CMAKE_C/CXX_COMPILER 写入 cmake cache (mingw.cmake 里
+          #      find_program 是非 cache 调用, CMP0056 NEW 不覆盖 cache).
+          #   2. 同时给 vcpkg 显式 CMAKE_C_COMPILER_TARGET, 避免它用 mingw.cmake
+          #      里 ${arch}-w64-windows-gnu 推断错.
           VCPKG_CMAKE_CONFIGURE_OPTIONS: >-
             -DCMAKE_C_COMPILER=${{ env.QT_ROOT_DIR }}/bin/gcc.exe
             -DCMAKE_CXX_COMPILER=${{ env.QT_ROOT_DIR }}/bin/g++.exe
+            -DCMAKE_C_COMPILER_TARGET=x86_64-w64-windows-gnu
+            -DCMAKE_CXX_COMPILER_TARGET=x86_64-w64-windows-gnu
+            -DCMAKE_SYSTEM_NAME=Windows
         run: |
+          # 兜底: 创建 vcpkg 期望的 "x86_64-w64-mingw32-gcc" 硬链接副本, 即使
+          # VCPKG_CMAKE_CONFIGURE_OPTIONS 不生效, find_program 也能找到.
+          # mingw73_64/bin 下的 gcc.exe 在运行时通过 dirname(argv[0]) 找它的
+          # include/lib 兄弟文件, 硬链接 (而非拷贝) 让它继续解析到 mingw73_64/bin
+          # 的原路径, 不会断.
+          mkdir -p "$GITHUB_WORKSPACE/mingw-prefix"
+          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-gcc.exe\" \"$QT_ROOT_DIR\\bin\\gcc.exe\"" || cp "$QT_ROOT_DIR/bin/gcc.exe" "$GITHUB_WORKSPACE/mingw-prefix/x86_64-w64-mingw32-gcc.exe"
+          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-g++.exe\" \"$QT_ROOT_DIR\\bin\\g++.exe\"" || cp "$QT_ROOT_DIR/bin/g++.exe" "$GITHUB_WORKSPACE/mingw-prefix/x86_64-w64-mingw32-g++.exe"
+          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-ld.exe\"    \"$QT_ROOT_DIR\\bin\\ld.exe\""    || true
+          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-ar.exe\"    \"$QT_ROOT_DIR\\bin\\ar.exe\""    || true
+          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-ranlib.exe\" \"$QT_ROOT_DIR\\bin\\ranlib.exe\"" || true
+          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-windres.exe\" \"$QT_ROOT_DIR\\bin\\windres.exe\"" || true
+          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-strip.exe\" \"$QT_ROOT_DIR\\bin\\strip.exe\"" || true
+          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-dlltool.exe\" \"$QT_ROOT_DIR\\bin\\dlltool.exe\"" || true
+          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-objcopy.exe\" \"$QT_ROOT_DIR\\bin\\objcopy.exe\"" || true
+          echo "--- mingw-prefix contents ---"
+          ls -la "$GITHUB_WORKSPACE/mingw-prefix/"
+          # 把 mingw-prefix 也放到 PATH 最前, 让 vcpkg 的 find_program 直接找到
+          export PATH="$GITHUB_WORKSPACE/mingw-prefix:$PATH"
           # vcpkg.json 已在仓库里, vcpkg 自动进入 manifest 模式从该文件读取依赖.
           # 不需要传包名, 也不需要 --triplet (env 设置了).
-          "$GITHUB_WORKSPACE/vcpkg/vcpkg" install 2>&1 | tee vcpkg-install.log
-          echo "vcpkg-install.log exit=$?"
+          # 用 || true 防止 vcpkg install 失败导致后续 debug 命令被 pipefail 跳过.
+          "$GITHUB_WORKSPACE/vcpkg/vcpkg" install 2>&1 | tee vcpkg-install.log || true
+          echo "vcpkg install exit=${PIPESTATUS[0]}"
           # 把 vcpkg buildtrees 也上传以便诊断 detect_compiler 失败原因
           tar -czf vcpkg-buildtrees.tar.gz -C "$GITHUB_WORKSPACE/vcpkg" buildtrees 2>/dev/null || true
-          # 把 detect_compiler 的关键日志单独拷一份 (buildtrees tar 可能太大上传失败)
+          # 把 detect_compiler 的所有日志都单独拷一份
           mkdir -p vcpkg-debug-logs
-          find "$GITHUB_WORKSPACE/vcpkg/buildtrees/detect_compiler" -maxdepth 3 \
-            \( -name 'config-*.log' -o -name 'stdout-*.log' -o -name 'CMakeCache.txt' \) \
-            -exec cp -v {} vcpkg-debug-logs/ \; 2>/dev/null || true
+          find "$GITHUB_WORKSPACE/vcpkg/buildtrees/detect_compiler" \
+            \( -name '*.log' -o -name 'CMakeCache.txt' -o -name 'CMakeFiles' -type d \) \
+            -exec cp -rv {} vcpkg-debug-logs/ \; 2>/dev/null || true
+          # 把整个 detect_compiler 目录打成一个 zip (buildtrees tar.gz 可能上传失败)
+          (cd "$GITHUB_WORKSPACE/vcpkg/buildtrees" && zip -r "$GITHUB_WORKSPACE/QCutter/detect-compiler-dump.zip" detect_compiler 2>/dev/null) || true
+          echo "--- vcpkg-debug-logs contents ---"
           ls -la vcpkg-debug-logs 2>&1 || true
+          echo "--- detect-compiler-dump.zip size ---"
+          ls -la detect-compiler-dump.zip 2>&1 || true
       - name: Upload vcpkg debug info (on failure)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -132,6 +161,7 @@ jobs:
             vcpkg-install.log
             vcpkg-buildtrees.tar.gz
             vcpkg-debug-logs
+            detect-compiler-dump.zip
 
       - name: Configure
         env:
