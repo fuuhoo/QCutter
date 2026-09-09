@@ -16,33 +16,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: windows-msvc
-            os: windows-2022
-            vcpkg_triplet: x64-windows
-            qt: '5.15'
-            qt_arch: 'win64_msvc2019_64'
-            qt_modules: ''
-            generator: Ninja
-            artifact_ext: '7z'
-            artifact_name: 'QCutter-windows-msvc'
           - name: windows-mingw
             os: windows-2022
-            vcpkg_triplet: x64-mingw-dynamic
-            qt: '5.15'
-            qt_arch: 'win64_mingw81'
-            qt_modules: ''
+            # 与本地 Kit "Desktop Qt 5.12.12 MinGW 64-bit" 一致:
+            #   Qt 5.12.12 + MinGW 7.3.0 (mingw73_64)
+            #   vcpkg 用 community triplet x64-mingw-dynamic-qt (cxx11 ABI=0,
+            #   与 Qt 5.12 自带的 libstdc++ ABI 一致, 避免运行时
+            #   "filesystem::path::parent_path() 无法定位程序输入点").
+            qt: '5.12'
+            qt_arch: 'win64_mingw73'
+            qt_modules: 'qtimageformats'
+            vcpkg_triplet: x64-mingw-dynamic-qt
             generator: Ninja
             artifact_ext: '7z'
             artifact_name: 'QCutter-windows-mingw'
-          - name: ubuntu
-            os: ubuntu-22.04
-            vcpkg_triplet: x64-linux
-            qt: '5.15'
-            qt_arch: 'gcc_64'
-            qt_modules: ''
-            generator: Ninja
-            artifact_ext: 'tar.gz'
-            artifact_name: 'QCutter-linux'
 
     runs-on: ${{ matrix.os }}
 
@@ -60,9 +47,11 @@ jobs:
           path: |
             ~/vcpkg
             ~/.cache/vcpkg
-          key: vcpkg-${{ matrix.os }}-${{ matrix.vcpkg_triplet }}-v2
+          # v3: 切到 x64-mingw-dynamic-qt + Qt 5.12.12 后, 旧的 mingw81
+          # ABI=1 缓存不能复用, 用新 namespace 强制重建.
+          key: vcpkg-${{ matrix.os }}-${{ matrix.vcpkg_triplet }}-qt${{ matrix.qt }}-v3
           restore-keys: |
-            vcpkg-${{ matrix.os }}-${{ matrix.vcpkg_triplet }}-
+            vcpkg-${{ matrix.os }}-${{ matrix.vcpkg_triplet }}-qt${{ matrix.qt }}-
 
       - name: Install vcpkg
         run: |
@@ -74,6 +63,10 @@ jobs:
           else
             echo "vcpkg already installed"
           fi
+          # 验证 x64-mingw-dynamic-qt triplet 可用 (vcpkg community triplet,
+          # 在 scripts/community_triplets/ 下, 默认会被扫描).
+          "$GITHUB_WORKSPACE/vcpkg/vcpkg" help triplet | grep -E "mingw.*qt|^x64-mingw-dynamic-qt$" || \
+            (echo "ERROR: x64-mingw-dynamic-qt triplet not available" && exit 1)
 
       - name: Install vcpkg dependencies
         env:
@@ -88,25 +81,16 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: ${{ matrix.qt }}
-          host: ${{ runner.os == 'Windows' && 'windows' || runner.os == 'macOS' && 'mac' || 'linux' }}
+          host: windows
           target: desktop
           arch: ${{ matrix.qt_arch }}
           modules: ${{ matrix.qt_modules }}
           cache: true
 
-      - name: Setup MSVC dev cmd (windows-msvc only)
-        if: matrix.name == 'windows-msvc'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
       - name: Configure
         env:
-          Qt5_DIR: ${{ env.Qt5_DIR }}
           CMAKE_PREFIX_PATH: ${{ env.QT_ROOT_DIR }}
         run: |
-          # windows-msvc uses ilammy/msvc-dev-cmd (sets up cl.exe in PATH).
-          # Ninja with MSVC tools works; cmake finds cl.exe via PATH.
           cmake -S . -B build \
             -G ${{ matrix.generator }} \
             -DCMAKE_BUILD_TYPE=Release \
@@ -116,58 +100,51 @@ jobs:
       - name: Build
         run: cmake --build build --config Release -j 2
 
-      - name: Strip binary (linux)
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          find build -maxdepth 2 -name 'QCutter*' -type f -executable -exec strip -s {} \; 2>/dev/null || true
-
       - name: Package
         env:
           QT_ROOT_DIR: ${{ env.QT_ROOT_DIR }}
         run: |
           rm -rf stage
           mkdir -p stage
-          # Ninja: build/QCutter / build/QCutter.exe
-          # Visual Studio (Release config): build/Release/QCutter.exe
-          find build -maxdepth 3 \( -name 'QCutter' -o -name 'QCutter.exe' \) \
+          # Ninja: build/QCutter / build/QCutter.exe (exe 在 build 根目录)
+          find build -maxdepth 2 \( -name 'QCutter' -o -name 'QCutter.exe' \) \
             -type f -executable -exec cp {} stage/ \; 2>/dev/null || true
           echo "--- stage contents before DLL copy ---"
           ls -la stage
-          # Windows: 复制 Qt + vcpkg DLL
-          # aqtinstall 把 Qt5*.dll 放在 $QT_ROOT_DIR/bin/, plugins 放在 $QT_ROOT_DIR/plugins/
-          if [ "${{ matrix.os }}" = "windows-2022" ]; then
-            echo "QT_ROOT_DIR=$QT_ROOT_DIR"
-            if [ -n "$QT_ROOT_DIR" ] && [ -d "$QT_ROOT_DIR" ]; then
-              # Qt5Core/Gui/Widgets/Network/Sql/PrintSupport/Concurrent dll
-              if [ -d "$QT_ROOT_DIR/bin" ]; then
-                for d in Qt5Core Qt5Gui Qt5Widgets Qt5Network Qt5Sql Qt5PrintSupport \
-                  Qt5Concurrent; do
-                  find "$QT_ROOT_DIR/bin" -maxdepth 1 -name "${d}.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
-                done
-              fi
-              # platforms/qwindows.dll 必须放在 platforms/ 子目录
-              if [ -d "$QT_ROOT_DIR/plugins/platforms" ]; then
-                mkdir -p stage/platforms
-                cp -v "$QT_ROOT_DIR/plugins/platforms/qwindows.dll" stage/platforms/ 2>/dev/null || true
-              fi
-              # mingw build 静态链接了 libstdc++ 进 exe (避免与 Qt 自带的
-              # libstdc++-6.dll ABI mismatch), 但 libgcc 的 SEH exception
-              # handling 部分仍要 libgcc_s_seh-1.dll 运行时支持.
-              # winpthread 也是动态链接.
-              if [ "${{ matrix.name }}" = "windows-mingw" ] && [ -d "$QT_ROOT_DIR/bin" ]; then
-                for d in libgcc_s_seh-1 libwinpthread-1; do
-                  find "$QT_ROOT_DIR/bin" -maxdepth 1 -name "${d}.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
-                done
-              fi
+
+          echo "QT_ROOT_DIR=$QT_ROOT_DIR"
+          if [ -n "$QT_ROOT_DIR" ] && [ -d "$QT_ROOT_DIR" ]; then
+            # Qt5Core/Gui/Widgets/Network/Sql/PrintSupport dll
+            if [ -d "$QT_ROOT_DIR/bin" ]; then
+              for d in Qt5Core Qt5Gui Qt5Widgets Qt5Network Qt5Sql Qt5PrintSupport \
+                Qt5Concurrent; do
+                find "$QT_ROOT_DIR/bin" -maxdepth 1 -name "${d}.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
+              done
             fi
-            # vcpkg manifest 模式装到 source tree 的 vcpkg_installed/<triplet>/bin
-            if [ -d "$GITHUB_WORKSPACE/QCutter/vcpkg_installed" ]; then
-              find "$GITHUB_WORKSPACE/QCutter/vcpkg_installed" -name "*.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
+            # platforms/qwindows.dll 必须放在 platforms/ 子目录
+            if [ -d "$QT_ROOT_DIR/plugins/platforms" ]; then
+              mkdir -p stage/platforms
+              cp -v "$QT_ROOT_DIR/plugins/platforms/qwindows.dll" stage/platforms/ 2>/dev/null || true
             fi
+            # mingw build 静态链接了 libstdc++/libgcc 进 exe (避免与 Qt
+            # 自带的 libstdc++-6.dll ABI mismatch), 但 libgcc 的 SEH
+            # exception handling 部分仍要 libgcc_s_seh-1.dll 运行时支持.
+            # winpthread 也是动态链接. include libstdc++-6.dll 作为
+            # 兜底 (静态链接失败时仍可启动).
+            if [ -d "$QT_ROOT_DIR/bin" ]; then
+              for d in libgcc_s_seh-1 libwinpthread-1 libstdc++-6; do
+                find "$QT_ROOT_DIR/bin" -maxdepth 1 -name "${d}.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
+              done
+            fi
+          fi
+          # vcpkg manifest 模式装到 source tree 的 vcpkg_installed/<triplet>/bin
+          if [ -d "$GITHUB_WORKSPACE/QCutter/vcpkg_installed" ]; then
+            find "$GITHUB_WORKSPACE/QCutter/vcpkg_installed" -name "*.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
           fi
           echo "--- stage contents before archive ---"
           ls -la stage
-          # 打包
+
+          # 打包成 7z
           if [ "${{ matrix.artifact_ext }}" = "7z" ]; then
             (cd stage && 7z a "../${{ matrix.artifact_name }}.7z" . 2>&1) || {
               (cd stage && zip -r "../${{ matrix.artifact_name }}.zip" .)
@@ -201,10 +178,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            artifacts/QCutter-windows-msvc/QCutter-windows-msvc.7z
-            artifacts/QCutter-windows-mingw/QCutter-windows-mingw.7z
-            artifacts/QCutter-linux/QCutter-linux.tar.gz
+          files: artifacts/QCutter-windows-mingw/QCutter-windows-mingw.7z
           generate_release_notes: true
           draft: false
           prerelease: false
