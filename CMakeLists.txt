@@ -23,6 +23,13 @@ else()
     # 把 stdc++fs 加到 link options; 注意该选项要放在最后才生效，
     # 在 target_link_libraries 里也会再次追加以保证链接顺序。
     add_link_options(-lstdc++fs)
+    # Qt 5.15.2 mingw81 是用 GCC 8.1.0 编译的, 默认 _GLIBCXX_USE_CXX11_ABI=0
+    # (旧 ABI, 符号不带 _cxx11 双下划线). 我们的 vcpkg mingw 用 GCC 11+ 编译时
+    # 默认 _GLIBCXX_USE_CXX11_ABI=1 (新 ABI), 链接 Qt 自带的 libstdc++-6.dll 时
+    # 找不到 path::parent_path() 等 _cxx11 符号, 程序启动报
+    # "ZNKS[t]10filesystem7_cxx11path11parent_pathEv 无法定位程序输入点".
+    # 强制关掉 cxx11 ABI 让 QCutter 用与 Qt5 相同的符号命名.
+    add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=0)
 endif()
 
 # ----------------------------------------------------------------------------
