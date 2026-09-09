@@ -74,6 +74,10 @@ jobs:
           # mingw64 (GCC 14+), 编译出的 .a ABI 跟 mingw73 不一致, 链接时 std::filesystem
           # 等符号在 mingw73 libstdc++.a 里找不到 (GCC 9+ 移除了 ABI=0 的符号).
           PATH: ${{ env.QT_ROOT_DIR }}/bin:${{ env.PATH }}
+          # CC/CXX 是 cmake LANGUAGES 项目初始化时的最高优先级, vcpkg 探测编译器
+          # (detect_compiler) 时会读到, 不受 vcpkg 内部 cmake 调用方式影响.
+          CC: ${{ env.QT_ROOT_DIR }}/bin/gcc.exe
+          CXX: ${{ env.QT_ROOT_DIR }}/bin/g++.exe
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
           # 项目自带的 overlay triplet (cmake/vcpkg-triplets/x64-mingw-dynamic-qt.cmake)
           # 在 vcpkg 内置 x64-mingw-dynamic 基础上强制 _GLIBCXX_USE_CXX11_ABI=0,
