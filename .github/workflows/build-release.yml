@@ -101,7 +101,18 @@ jobs:
         run: |
           # vcpkg.json 已在仓库里, vcpkg 自动进入 manifest 模式从该文件读取依赖.
           # 不需要传包名, 也不需要 --triplet (env 设置了).
-          "$GITHUB_WORKSPACE/vcpkg/vcpkg" install
+          "$GITHUB_WORKSPACE/vcpkg/vcpkg" install 2>&1 | tee vcpkg-install.log
+          echo "vcpkg-install.log exit=$?"
+          # 把 vcpkg buildtrees 也上传以便诊断 detect_compiler 失败原因
+          tar -czf vcpkg-buildtrees.tar.gz "$GITHUB_WORKSPACE/vcpkg/buildtrees" 2>/dev/null || true
+      - name: Upload vcpkg debug info (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcpkg-debug-${{ matrix.name }}
+          path: |
+            vcpkg-install.log
+            vcpkg-buildtrees.tar.gz
 
       - name: Configure
         env:
