@@ -84,56 +84,18 @@ jobs:
 
       - name: Install vcpkg dependencies
         env:
-          # 强制 vcpkg 用 Qt 自带的 mingw73 (GCC 7.3) 编译 sqlite3/tiff/zlib 等依赖,
-          # 与 QCutter.exe + Qt5.12 mingw73 的 libstdc++ ABI 一致. 如果用 MSYS2
-          # mingw64 (GCC 14+), 编译出的 .a ABI 跟 mingw73 不一致, 链接时 std::filesystem
-          # 等符号在 mingw73 libstdc++.a 里找不到 (GCC 9+ 移除了 ABI=0 的符号).
-          PATH: ${{ env.QT_ROOT_DIR }}/bin:${{ env.PATH }}
-          # CC/CXX 是 cmake LANGUAGES 项目初始化时的最高优先级, vcpkg 探测编译器
-          # (detect_compiler) 时会读到, 不受 vcpkg 内部 cmake 调用方式影响.
-          CC: ${{ env.QT_ROOT_DIR }}/bin/gcc.exe
-          CXX: ${{ env.QT_ROOT_DIR }}/bin/g++.exe
+          # 不要在这里强制 Qt mingw73 (gcc.exe), 那会破坏 vcpkg detect_compiler —
+          # 它要的是带目标前缀的 x86_64-w64-mingw32-g++.exe, windows-2022 runner
+          # 自带的 C:\mingw64\bin (MSYS2 mingw64) 里有这个, 让 vcpkg 自己用就行.
+          # v2.0.3 成功的版本就是这样配置的 (没 CC/CXX env, 也没 PATH 前缀 Qt mingw).
+          #
+          # vcpkg.json 已在仓库里, vcpkg 自动进入 manifest 模式从该文件读取依赖.
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
           # 项目自带的 overlay triplet (cmake/vcpkg-triplets/x64-mingw-dynamic-qt.cmake)
           # 在 vcpkg 内置 x64-mingw-dynamic 基础上强制 _GLIBCXX_USE_CXX11_ABI=0,
           # 让 vcpkg 编译的 tiff/sqlite 等依赖与 Qt 5.12 + QCutter 自身 ABI 一致.
           VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/cmake/vcpkg-triplets
-          # vcpkg 内部的 detect_compiler 走 scripts/toolchains/mingw.cmake, 它
-          # find_program(CMAKE_C_COMPILER "x86_64-w64-mingw32-gcc") — Qt 的
-          # mingw73_64/bin 下没有带目标前缀的副本 (只有 gcc.exe), find_program
-          # 返回 NOTFOUND, enable_language(C) 失败 → detect_compiler 报
-          # "unable to detect the active compiler's information".
-          # 双管齐下:
-          #   1. 提前把 CMAKE_C/CXX_COMPILER 写入 cmake cache (mingw.cmake 里
-          #      find_program 是非 cache 调用, CMP0056 NEW 不覆盖 cache).
-          #   2. 同时给 vcpkg 显式 CMAKE_C_COMPILER_TARGET, 避免它用 mingw.cmake
-          #      里 ${arch}-w64-windows-gnu 推断错.
-          VCPKG_CMAKE_CONFIGURE_OPTIONS: >-
-            -DCMAKE_C_COMPILER=${{ env.QT_ROOT_DIR }}/bin/gcc.exe
-            -DCMAKE_CXX_COMPILER=${{ env.QT_ROOT_DIR }}/bin/g++.exe
-            -DCMAKE_C_COMPILER_TARGET=x86_64-w64-windows-gnu
-            -DCMAKE_CXX_COMPILER_TARGET=x86_64-w64-windows-gnu
-            -DCMAKE_SYSTEM_NAME=Windows
         run: |
-          # 兜底: 创建 vcpkg 期望的 "x86_64-w64-mingw32-gcc" 硬链接副本, 即使
-          # VCPKG_CMAKE_CONFIGURE_OPTIONS 不生效, find_program 也能找到.
-          # mingw73_64/bin 下的 gcc.exe 在运行时通过 dirname(argv[0]) 找它的
-          # include/lib 兄弟文件, 硬链接 (而非拷贝) 让它继续解析到 mingw73_64/bin
-          # 的原路径, 不会断.
-          mkdir -p "$GITHUB_WORKSPACE/mingw-prefix"
-          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-gcc.exe\" \"$QT_ROOT_DIR\\bin\\gcc.exe\"" || cp "$QT_ROOT_DIR/bin/gcc.exe" "$GITHUB_WORKSPACE/mingw-prefix/x86_64-w64-mingw32-gcc.exe"
-          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-g++.exe\" \"$QT_ROOT_DIR\\bin\\g++.exe\"" || cp "$QT_ROOT_DIR/bin/g++.exe" "$GITHUB_WORKSPACE/mingw-prefix/x86_64-w64-mingw32-g++.exe"
-          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-ld.exe\"    \"$QT_ROOT_DIR\\bin\\ld.exe\""    || true
-          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-ar.exe\"    \"$QT_ROOT_DIR\\bin\\ar.exe\""    || true
-          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-ranlib.exe\" \"$QT_ROOT_DIR\\bin\\ranlib.exe\"" || true
-          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-windres.exe\" \"$QT_ROOT_DIR\\bin\\windres.exe\"" || true
-          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-strip.exe\" \"$QT_ROOT_DIR\\bin\\strip.exe\"" || true
-          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-dlltool.exe\" \"$QT_ROOT_DIR\\bin\\dlltool.exe\"" || true
-          cmd //c "mklink /H \"$GITHUB_WORKSPACE\\mingw-prefix\\x86_64-w64-mingw32-objcopy.exe\" \"$QT_ROOT_DIR\\bin\\objcopy.exe\"" || true
-          echo "--- mingw-prefix contents ---"
-          ls -la "$GITHUB_WORKSPACE/mingw-prefix/"
-          # 把 mingw-prefix 也放到 PATH 最前, 让 vcpkg 的 find_program 直接找到
-          export PATH="$GITHUB_WORKSPACE/mingw-prefix:$PATH"
           # vcpkg.json 已在仓库里, vcpkg 自动进入 manifest 模式从该文件读取依赖.
           # 不需要传包名, 也不需要 --triplet (env 设置了).
           # 用 || true 防止 vcpkg install 失败导致后续 debug 命令被 pipefail 跳过.
@@ -144,8 +106,8 @@ jobs:
           # 把 detect_compiler 的所有日志都单独拷一份
           mkdir -p vcpkg-debug-logs
           find "$GITHUB_WORKSPACE/vcpkg/buildtrees/detect_compiler" \
-            \( -name '*.log' -o -name 'CMakeCache.txt' -o -name 'CMakeFiles' -type d \) \
-            -exec cp -rv {} vcpkg-debug-logs/ \; 2>/dev/null || true
+            \( -name '*.log' -o -name 'CMakeCache.txt' \) \
+            -exec cp -v {} vcpkg-debug-logs/ \; 2>/dev/null || true
           # 把整个 detect_compiler 目录打成一个 zip (buildtrees tar.gz 可能上传失败)
           (cd "$GITHUB_WORKSPACE/vcpkg/buildtrees" && zip -r "$GITHUB_WORKSPACE/QCutter/detect-compiler-dump.zip" detect_compiler 2>/dev/null) || true
           echo "--- vcpkg-debug-logs contents ---"
