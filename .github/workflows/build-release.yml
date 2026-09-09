@@ -93,6 +93,10 @@ jobs:
       - name: Configure
         env:
           CMAKE_PREFIX_PATH: ${{ env.QT_ROOT_DIR }}
+          # Configure 也要传 triplet/overlay, 否则 cmake 默认用 x64-windows
+          # 会重新触发 vcpkg install 装一份错的 (MSVC ABI) 到 build/.
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
+          VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/cmake/vcpkg-triplets
         run: |
           cmake -S . -B build \
             -G ${{ matrix.generator }} \
@@ -140,10 +144,21 @@ jobs:
               done
             fi
           fi
-          # vcpkg manifest 模式装到 source tree 的 vcpkg_installed/<triplet>/bin
-          if [ -d "$GITHUB_WORKSPACE/QCutter/vcpkg_installed" ]; then
-            find "$GITHUB_WORKSPACE/QCutter/vcpkg_installed" -name "*.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
-          fi
+
+          # vcpkg manifest 模式默认装到 <source>/vcpkg_installed/<triplet>/bin.
+          # 如果 Configure 把 vcpkg_instaled 切到 build/ 下 (通过 VCPKG_INSTALLED_DIR),
+          # 那就去找 build/vcpkg_installed/. 三个路径都试一下, 谁有就拷谁.
+          for _vcpkg_dir in \
+            "$GITHUB_WORKSPACE/QCutter/vcpkg_installed" \
+            "$GITHUB_WORKSPACE/vcpkg_installed" \
+            "$GITHUB_WORKSPACE/build/vcpkg_installed"; do
+            if [ -d "$_vcpkg_dir" ]; then
+              echo "vcpkg_installed dir: $_vcpkg_dir"
+              find "$_vcpkg_dir" -path '*/bin/*.dll' -exec cp -v {} stage/ \; 2>/dev/null || true
+              break
+            fi
+          done
+
           echo "--- stage contents before archive ---"
           ls -la stage
 
