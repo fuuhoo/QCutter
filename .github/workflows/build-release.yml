@@ -98,10 +98,14 @@ jobs:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
           VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/cmake/vcpkg-triplets
         run: |
+          # 强制指定 triplet (vcpkg cmake toolchain 优先用 CMAKE_C_COMPILER 推断,
+          # 在 windows-2022 runner 上 cl.exe 在 PATH 里就被推断成 x64-windows).
           cmake -S . -B build \
             -G ${{ matrix.generator }} \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET="${{ matrix.vcpkg_triplet }}" \
+            -DVCPKG_INSTALLED_DIR="$GITHUB_WORKSPACE/vcpkg_installed" \
             -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
 
       - name: Build
@@ -148,13 +152,16 @@ jobs:
           # vcpkg manifest 模式默认装到 <source>/vcpkg_installed/<triplet>/bin.
           # 如果 Configure 把 vcpkg_instaled 切到 build/ 下 (通过 VCPKG_INSTALLED_DIR),
           # 那就去找 build/vcpkg_installed/. 三个路径都试一下, 谁有就拷谁.
+          # 注意: vcpkg 在 manifest 模式下会同时装 release 和 debug 两套 bin/,
+          # debug 版的 dll 带 d 后缀 (libtiffd-6.dll / libzd.dll), exe 链的是
+          # release 版, 用 debug 版 dll 会导致符号不一致. 只拷 release bin/.
           for _vcpkg_dir in \
             "$GITHUB_WORKSPACE/QCutter/vcpkg_installed" \
             "$GITHUB_WORKSPACE/vcpkg_installed" \
             "$GITHUB_WORKSPACE/build/vcpkg_installed"; do
             if [ -d "$_vcpkg_dir" ]; then
               echo "vcpkg_installed dir: $_vcpkg_dir"
-              find "$_vcpkg_dir" -path '*/bin/*.dll' -exec cp -v {} stage/ \; 2>/dev/null || true
+              find "$_vcpkg_dir" -path '*/bin/*.dll' -not -path '*/debug/*' -exec cp -v {} stage/ \; 2>/dev/null || true
               break
             fi
           done
