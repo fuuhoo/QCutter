@@ -23,6 +23,13 @@ else()
     # 把 stdc++fs 加到 link options; 注意该选项要放在最后才生效，
     # 在 target_link_libraries 里也会再次追加以保证链接顺序。
     add_link_options(-lstdc++fs)
+    # Qt 5.15.2 mingw81 自带的 libstdc++-6.dll 是 GCC 8.1.0 编的 (默认 cxx11 ABI),
+    # 但 GCC 8/9 在不同 minor 版本上 _GLIBCXX_USE_CXX11_ABI 默认值不一致,
+    # 加上 vcpkg mingw 用的 GCC 11+ 默认 ABI=1, 跨版本运行时容易出现
+    # "filesystem::path::parent_path() 无法定位程序输入点" 错误.
+    # 解决: 静态链接 libgcc/libstdc++ 进 exe, 这样 QCutter.exe 完全不依赖
+    # Qt 自带的 libstdc++-6.dll (避免 ABI mismatch).
+    add_link_options(-static-libgcc -static-libstdc++)
 endif()
 
 # Qt 5.15.2 mingw81 是用 GCC 8.1.0 编译的, 默认 _GLIBCXX_USE_CXX11_ABI=0
