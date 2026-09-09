@@ -103,7 +103,9 @@ jobs:
       - name: Install mingw73 toolchain
         run: |
           python -m pip install --quiet aqtinstall
-          python -m aqt install-tool windows desktop tools_mingw730 -O C:/Qt
+          # Qt SDK 包命名约定: tools_mingw<short_ver>_64 = 64-bit mingw.
+          # Qt 5.12.12 自带的 mingw 是 7.3.0, 所以 tools_mingw730_64.
+          python -m aqt install-tool windows desktop tools_mingw730_64 -O C:/Qt
           MINGW_BIN="/c/Qt/Tools/mingw730_64/bin"
           echo "--- mingw730_64 toolchain ---"
           ls -la "$MINGW_BIN/g++.exe"
