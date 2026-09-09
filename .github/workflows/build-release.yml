@@ -150,11 +150,14 @@ jobs:
                 mkdir -p stage/platforms
                 cp -v "$QT_ROOT_DIR/plugins/platforms/qwindows.dll" stage/platforms/ 2>/dev/null || true
               fi
-              # mingw build 静态链接了 libgcc/libstdc++ (避免与 Qt 自带的
-              # libstdc++-6.dll ABI mismatch), 不需要复制这些运行时 DLL.
-              # 但 winpthread 还是动态链接 (Qt 5.15.2 mingw81 用 winpthread).
+              # mingw build 静态链接了 libstdc++ 进 exe (避免与 Qt 自带的
+              # libstdc++-6.dll ABI mismatch), 但 libgcc 的 SEH exception
+              # handling 部分仍要 libgcc_s_seh-1.dll 运行时支持.
+              # winpthread 也是动态链接.
               if [ "${{ matrix.name }}" = "windows-mingw" ] && [ -d "$QT_ROOT_DIR/bin" ]; then
-                find "$QT_ROOT_DIR/bin" -maxdepth 1 -name "libwinpthread-1.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
+                for d in libgcc_s_seh-1 libwinpthread-1; do
+                  find "$QT_ROOT_DIR/bin" -maxdepth 1 -name "${d}.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
+                done
               fi
             fi
             # vcpkg manifest 模式装到 source tree 的 vcpkg_installed/<triplet>/bin

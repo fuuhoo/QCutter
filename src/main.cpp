@@ -124,7 +124,13 @@ static LONG WINAPI crashHandler(EXCEPTION_POINTERS* ep) {
 }
 
 static void installCrashHandler() {
+    // 在 mingw / non-msvc 平台 SetUnhandledExceptionFilter 可能不可靠
+    // (mingw 对 SEH 的实现不完整), 而且会调用 dbghelp.dll 中的符号
+    // (SymInitialize 等), mingw build 默认不链 dbghelp.lib,
+    // 导致运行时报 "未定义入口". 这里只对 MSVC 安装 SEH 处理器.
+#if defined(_MSC_VER)
     SetUnhandledExceptionFilter(crashHandler);
+#endif
     // SIGABRT 在 MinGW 用 _set_abort_behavior 处理更稳; 这里只设 SEH
 }
 #else
@@ -331,16 +337,22 @@ int main(int argc, char** argv) {
     installCrashHandler();
     std::setvbuf(stderr, NULL, _IOLBF, 0);  // line-buffered stderr
 
-    // 启动诊断: 把最早的可执行性信息写到文件, 帮助排查"启动闪退"问题.
-    // 写入 %LOCALAPPDATA%\QCutter\logs\startup.log (GUI mode 没 console 看不到 stderr).
+    // 启动诊断: 把最早的可执行性信息写到 exe 所在目录的 _qcutter_startup.log
+    // (保证不依赖 %LOCALAPPDATA% 等环境变量). GUI mode 没 console, 这是排查
+    // "silent exit" 的唯一手段.
     {
-        auto startLog = qcutter::appDataDir() / "logs" / "startup.log";
-        QDir().mkpath(QString::fromStdString((qcutter::appDataDir() / "logs").string()));
-        FILE* f = fopen(startLog.string().c_str(), "a");
+        char exePath[MAX_PATH] = {0};
+        GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+        std::string exeDir = exePath;
+        auto slash = exeDir.find_last_of("\\/");
+        if (slash != std::string::npos) exeDir = exeDir.substr(0, slash);
+        std::string logPath = exeDir + "\\_qcutter_startup.log";
+        FILE* f = fopen(logPath.c_str(), "a");
         if (f) {
             SYSTEMTIME st; GetLocalTime(&st);
-            fprintf(f, "[%04d-%02d-%02d %02d:%02d:%02d] main(argc=%d) entered, mode=",
-                    st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, argc);
+            fprintf(f, "[%04d-%02d-%02d %02d:%02d:%02d] main(argc=%d) entered, exe=%s, mode=",
+                    st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
+                    argc, exePath);
             if (argc >= 2 && std::strcmp(argv[1], "--cut") == 0) {
                 fprintf(f, "CLI-cut\n");
             } else if (argc >= 2 && std::strcmp(argv[1], "--cli") == 0) {
