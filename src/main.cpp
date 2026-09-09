@@ -331,6 +331,27 @@ int main(int argc, char** argv) {
     installCrashHandler();
     std::setvbuf(stderr, NULL, _IOLBF, 0);  // line-buffered stderr
 
+    // 启动诊断: 把最早的可执行性信息写到文件, 帮助排查"启动闪退"问题.
+    // 写入 %LOCALAPPDATA%\QCutter\logs\startup.log (GUI mode 没 console 看不到 stderr).
+    {
+        auto startLog = qcutter::appDataDir() / "logs" / "startup.log";
+        QDir().mkpath(QString::fromStdString((qcutter::appDataDir() / "logs").string()));
+        FILE* f = fopen(startLog.string().c_str(), "a");
+        if (f) {
+            SYSTEMTIME st; GetLocalTime(&st);
+            fprintf(f, "[%04d-%02d-%02d %02d:%02d:%02d] main(argc=%d) entered, mode=",
+                    st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, argc);
+            if (argc >= 2 && std::strcmp(argv[1], "--cut") == 0) {
+                fprintf(f, "CLI-cut\n");
+            } else if (argc >= 2 && std::strcmp(argv[1], "--cli") == 0) {
+                fprintf(f, "CLI-preview\n");
+            } else {
+                fprintf(f, "GUI\n");
+            }
+            fclose(f);
+        }
+    }
+
     // CLI 模式不启动 UI. 必须在 QApplication 之前处理.
     if (argc >= 2 && std::strcmp(argv[1], "--cut") == 0) {
         ensureConsoleForCli();
