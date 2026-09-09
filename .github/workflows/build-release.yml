@@ -82,20 +82,65 @@ jobs:
           modules: ${{ matrix.qt_modules }}
           cache: true
 
+      # install-qt-action@v4 只装 Qt 库 (DLLs/prl/pc), 不装 MinGW toolchain.
+      # 本地 Kit "Desktop Qt 5.12.12 MinGW 64-bit" 用的是 Qt 离线安装器 bundle
+      # 的 mingw730_64 (GCC 7.3.0, 在 D:\Qt\Qt5.12.12\Tools\mingw730_64\bin\).
+      # CI 要对齐本地 Kit, 必须单独装这个 toolchain. 用 aqtinstall (install-qt
+      # -action 内部用的就是它) 装 tools_mingw730, 落到 C:\Qt\Tools\mingw730_64\
+      # bin\, 与本地路径一致.
+      #
+      # 关键: 用 mingw73 (GCC 7.3) 而非 MSYS2 mingw64 (GCC 14) 编译 QCutter.exe
+      # **和 vcpkg 依赖**, 出来的 exe 大小/行为与本地 dev 3716 KB 完全一致
+      # (用 GCC 14 编会膨胀到 4182 KB, 因为 GCC 14 stdlib 引入了更多符号; 并且
+      # GCC 14 编的 vcpkg 依赖与 GCC 7.3 编的 exe 在 ABI=0 边界仍有 minor
+      # 差异风险, std::list size 等会跨版本变化).
+      #
+      # vcpkg 的 scripts/toolchains/mingw.cmake 用 find_program 找
+      # x86_64-w64-mingw32-gcc.exe (target-prefixed 名), 但 Qt mingw730_64 的
+      # bin/ 里只有 gcc.exe (无前缀). 把 gcc.exe 复制成 x86_64-w64-mingw32-gcc.
+      # exe 让 vcpkg 用 — GCC driver 看到 argv[0] 含 -w64-mingw32- 就用 target
+      # triple, 与 mingw73 自身一致, 行为等价.
+      - name: Install mingw73 toolchain
+        run: |
+          python -m pip install --quiet aqtinstall
+          python -m aqt install-tool windows desktop tools_mingw730 -O C:/Qt
+          MINGW_BIN="/c/Qt/Tools/mingw730_64/bin"
+          echo "--- mingw730_64 toolchain ---"
+          ls -la "$MINGW_BIN/g++.exe"
+          "$MINGW_BIN/g++.exe" --version | head -1
+          # 复制成 vcpkg find_program 找的 target-prefixed 名 (cp 不用 admin,
+          # 不需要 mklink). 只复制 driver, 其他工具 (ld/ar/as) 共享同一 bin/,
+          # find_program 用 PATH 找到原 gcc.exe 旁边, 没问题.
+          for tool in gcc g++ cpp cc c++ ld; do
+            src="$MINGW_BIN/${tool}.exe"
+            dst="$MINGW_BIN/x86_64-w64-mingw32-${tool}.exe"
+            if [ -f "$src" ] && [ ! -f "$dst" ]; then
+              cp -v "$src" "$dst"
+            fi
+          done
+          echo "--- target-prefixed tool wrappers ---"
+          ls -la "$MINGW_BIN/x86_64-w64-mingw32-"*.exe 2>&1 | head -10
+          echo "MINGW73_TOOLCHAIN_ROOT=C:/Qt/Tools/mingw730_64" >> "$GITHUB_ENV"
+
       - name: Install vcpkg dependencies
         env:
-          # 不要在这里强制 Qt mingw73 (gcc.exe), 那会破坏 vcpkg detect_compiler —
-          # 它要的是带目标前缀的 x86_64-w64-mingw32-g++.exe, windows-2022 runner
-          # 自带的 C:\mingw64\bin (MSYS2 mingw64) 里有这个, 让 vcpkg 自己用就行.
-          # v2.0.3 成功的版本就是这样配置的 (没 CC/CXX env, 也没 PATH 前缀 Qt mingw).
-          #
-          # vcpkg.json 已在仓库里, vcpkg 自动进入 manifest 模式从该文件读取依赖.
+          # 让 vcpkg 编译 tiff/sqlite 等依赖时也用 Qt 的 mingw73 (GCC 7.3),
+          # 与 QCutter.exe 用同一编译器 — 避免 GCC 14 vcpkg 依赖 + GCC 7.3 exe
+          # 跨版本 ABI 风险 (即使强制 ABI=0, std::list size 等仍有跨 GCC 版本
+          # 差异). mingw73 bin/ 里同时有 gcc.exe 和我们 cp 出来的
+          # x86_64-w64-mingw32-gcc.exe (vcpkg find_program 找的就是后者).
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
           # 项目自带的 overlay triplet (cmake/vcpkg-triplets/x64-mingw-dynamic-qt.cmake)
           # 在 vcpkg 内置 x64-mingw-dynamic 基础上强制 _GLIBCXX_USE_CXX11_ABI=0,
           # 让 vcpkg 编译的 tiff/sqlite 等依赖与 Qt 5.12 + QCutter 自身 ABI 一致.
           VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/cmake/vcpkg-triplets
         run: |
+          # mingw73 bin 放 PATH 最前, vcpkg detect_compiler 就能找到 x86_64
+          # -w64-mingw32-gcc.exe (我们 cp 出来的 wrapper).
+          export PATH="/c/Qt/Tools/mingw730_64/bin:$PATH"
+          echo "--- which gcc for vcpkg ---"
+          which x86_64-w64-mingw32-gcc.exe || which x86_64-w64-mingw32-gcc
+          x86_64-w64-mingw32-gcc --version | head -1
           # vcpkg.json 已在仓库里, vcpkg 自动进入 manifest 模式从该文件读取依赖.
           # 不需要传包名, 也不需要 --triplet (env 设置了).
           # 用 || true 防止 vcpkg install 失败导致后续 debug 命令被 pipefail 跳过.
@@ -132,28 +177,24 @@ jobs:
           # 会重新触发 vcpkg install 装一份错的 (MSVC ABI) 到 build/.
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
           VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/cmake/vcpkg-triplets
-          # QCutter 也用 MSYS2 mingw64 (GCC 14) 编, 与 vcpkg install 用的
-          # 编译器保持一致 (vcpkg 检测到 C:/mingw64/bin/x86_64-w64-mingw32-g++.
-          # exe). 不要用 Qt 自带的 mingw73 — install-qt-action v4 + arch:
-          # win64_mingw73 不装 MinGW toolchain, 只装 Qt 库 (D:/a/QCutter/Qt/
-          # 5.12.12/mingw73_64/bin/g++.exe 不存在).
+          # QCutter 用 Qt 自带的 mingw730_64 (GCC 7.3.0) 编, 与本地 dev Kit
+          # 完全一致. 用 GCC 7.3 编出来的 exe (3716 KB) 才与本地 dev 一致;
+          # 之前用 MSYS2 mingw64 (GCC 14) 编虽然能跑, 但 exe 膨胀到 4182 KB
+          # (GCC 14 stdlib 引入了更多 c++17/20 符号), 与本地不符.
           #
-          # ABI: GCC 14 默认 cxx11 ABI=1, 但我们强制 _GLIBCXX_USE_CXX11_ABI=0
-          # (在 CMakeLists.txt:51), 与 Qt 5.12 mingw73 libstdc++ 的 ABI=0 一致.
-          # -static-libstdc++/-static-libgcc (CMakeLists.txt:32) 让 QCutter.exe
-          # 完全不依赖外部 libstdc++-6.dll, 即使 ABI=0 std::filesystem symbols
-          # 在 GCC 14 libstdc++-6.dll 里被移除, 链接器也能在 libstdc++.a (静态)
-          # 里找到旧符号.
-          CMAKE_C_COMPILER: 'C:/mingw64/bin/x86_64-w64-mingw32-gcc.exe'
-          CMAKE_CXX_COMPILER: 'C:/mingw64/bin/x86_64-w64-mingw32-g++.exe'
+          # ABI: mingw73 默认就是 cxx11 ABI=0, 与 Qt 5.12 mingw73 libstdc++
+          # 完全一致, 不需要 _GLIBCXX_USE_CXX11_ABI=0 标志 (但 CMakeLists.txt
+          # 里仍然强制, 保险).
+          CMAKE_C_COMPILER: 'C:/Qt/Tools/mingw730_64/bin/gcc.exe'
+          CMAKE_CXX_COMPILER: 'C:/Qt/Tools/mingw730_64/bin/g++.exe'
         run: |
-          # PATH 里 MSYS2 mingw64 放最前, 避免 cmake 选 MSVC.
-          export PATH="/c/mingw64/bin:$PATH"
+          # PATH 里 mingw73 放最前, 避免 cmake 选 MSVC 或 MSYS2 mingw64.
+          export PATH="/c/Qt/Tools/mingw730_64/bin:$PATH"
           cmake -S . -B build \
             -G ${{ matrix.generator }} \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER='C:/mingw64/bin/x86_64-w64-mingw32-gcc.exe' \
-            -DCMAKE_CXX_COMPILER='C:/mingw64/bin/x86_64-w64-mingw32-g++.exe' \
+            -DCMAKE_C_COMPILER='C:/Qt/Tools/mingw730_64/bin/gcc.exe' \
+            -DCMAKE_CXX_COMPILER='C:/Qt/Tools/mingw730_64/bin/g++.exe' \
             -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET="${{ matrix.vcpkg_triplet }}" \
             -DVCPKG_INSTALLED_DIR="$GITHUB_WORKSPACE/vcpkg_installed" \
@@ -188,16 +229,15 @@ jobs:
               mkdir -p stage/platforms
               cp -v "$QT_ROOT_DIR/plugins/platforms/qwindows.dll" stage/platforms/ 2>/dev/null || true
             fi
-            # mingw runtime DLLs 不在 $QT_ROOT_DIR/bin (install-qt-action
-            # v4 + arch: win64_mingw73 不装 MinGW toolchain). 它们在 windows-
-            # 2022 runner 自带的 C:/mingw64/bin (MSYS2 mingw64) — 我们用
-            # 这个 GCC 编 QCutter.exe.
+            # mingw 运行时 DLLs: QCutter 现在用 Qt 自带的 mingw730_64 (GCC 7.3)
+            # 编, 运行时 DLL 从 C:/Qt/Tools/mingw730_64/bin 取, 这是 Qt 离线
+            # 安装器 bundle 的 mingw73 toolchain.
             # -static-libstdc++/-static-libgcc 已经在 link options 里, 所以
             # libstdc++-6.dll / libgcc_s_seh-1.dll 不需要 (静态链进去了).
             # libwinpthread-1.dll Qt 链了, 必须拷.
-            if [ -d /c/mingw64/bin ]; then
+            if [ -d /c/Qt/Tools/mingw730_64/bin ]; then
               for d in libwinpthread-1 libgcc_s_seh-1 libstdc++-6; do
-                find /c/mingw64/bin -maxdepth 1 -name "${d}.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
+                find /c/Qt/Tools/mingw730_64/bin -maxdepth 1 -name "${d}.dll" -exec cp -v {} stage/ \; 2>/dev/null || true
               done
             fi
           fi
