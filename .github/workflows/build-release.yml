@@ -27,7 +27,8 @@ jobs:
             #   定位程序输入点".
             qt: '5.12'
             qt_arch: 'win64_mingw73'
-            qt_modules: 'qtimageformats'
+            # Qt 5.12 没有 qtimageformats module (5.15+ 才有), 留空用基础组件.
+            qt_modules: ''
             vcpkg_triplet: x64-mingw-dynamic-qt
             generator: Ninja
             artifact_ext: '7z'
