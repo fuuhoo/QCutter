@@ -20,9 +20,11 @@ jobs:
             os: windows-2022
             # 与本地 Kit "Desktop Qt 5.12.12 MinGW 64-bit" 一致:
             #   Qt 5.12.12 + MinGW 7.3.0 (mingw73_64)
-            #   vcpkg 用 community triplet x64-mingw-dynamic-qt (cxx11 ABI=0,
-            #   与 Qt 5.12 自带的 libstdc++ ABI 一致, 避免运行时
-            #   "filesystem::path::parent_path() 无法定位程序输入点").
+            #   vcpkg triplet: 内置 x64-mingw-dynamic + 项目自带的
+            #   overlay triplet (cmake/vcpkg-triplets/x64-mingw-dynamic-qt.cmake)
+            #   强制 _GLIBCXX_USE_CXX11_ABI=0, 与 Qt 5.12 自带的 libstdc++
+            #   ABI 一致, 避免运行时 "filesystem::path::parent_path() 无法
+            #   定位程序输入点".
             qt: '5.12'
             qt_arch: 'win64_mingw73'
             qt_modules: 'qtimageformats'
@@ -63,14 +65,14 @@ jobs:
           else
             echo "vcpkg already installed"
           fi
-          # 验证 x64-mingw-dynamic-qt triplet 可用 (vcpkg community triplet,
-          # 在 scripts/community_triplets/ 下, 默认会被扫描).
-          "$GITHUB_WORKSPACE/vcpkg/vcpkg" help triplet | grep -E "mingw.*qt|^x64-mingw-dynamic-qt$" || \
-            (echo "ERROR: x64-mingw-dynamic-qt triplet not available" && exit 1)
 
       - name: Install vcpkg dependencies
         env:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
+          # 项目自带的 overlay triplet (cmake/vcpkg-triplets/x64-mingw-dynamic-qt.cmake)
+          # 在 vcpkg 内置 x64-mingw-dynamic 基础上强制 _GLIBCXX_USE_CXX11_ABI=0,
+          # 让 vcpkg 编译的 tiff/sqlite 等依赖与 Qt 5.12 + QCutter 自身 ABI 一致.
+          VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/cmake/vcpkg-triplets
         run: |
           # vcpkg.json 已在仓库里, vcpkg 自动进入 manifest 模式从该文件读取依赖.
           # 不需要传包名, 也不需要 --triplet (env 设置了).
