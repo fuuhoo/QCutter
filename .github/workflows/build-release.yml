@@ -50,9 +50,9 @@ jobs:
           path: |
             ~/vcpkg
             ~/.cache/vcpkg
-          # v3: 切到 x64-mingw-dynamic-qt + Qt 5.12.12 后, 旧的 mingw81
-          # ABI=1 缓存不能复用, 用新 namespace 强制重建.
-          key: vcpkg-${{ matrix.os }}-${{ matrix.vcpkg_triplet }}-qt${{ matrix.qt }}-v3
+          # v4: 切换到用 Qt 自带 mingw73 (GCC 7.3) 编译依赖, 旧的 mingw64
+          # (GCC 14) ABI 缓存不能复用, 用新命名空间强制重建.
+          key: vcpkg-${{ matrix.os }}-${{ matrix.vcpkg_triplet }}-qt${{ matrix.qt }}-v4
           restore-keys: |
             vcpkg-${{ matrix.os }}-${{ matrix.vcpkg_triplet }}-qt${{ matrix.qt }}-
 
@@ -69,6 +69,11 @@ jobs:
 
       - name: Install vcpkg dependencies
         env:
+          # 强制 vcpkg 用 Qt 自带的 mingw73 (GCC 7.3) 编译 sqlite3/tiff/zlib 等依赖,
+          # 与 QCutter.exe + Qt5.12 mingw73 的 libstdc++ ABI 一致. 如果用 MSYS2
+          # mingw64 (GCC 14+), 编译出的 .a ABI 跟 mingw73 不一致, 链接时 std::filesystem
+          # 等符号在 mingw73 libstdc++.a 里找不到 (GCC 9+ 移除了 ABI=0 的符号).
+          PATH: ${{ env.QT_ROOT_DIR }}/bin:${{ env.PATH }}
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
           # 项目自带的 overlay triplet (cmake/vcpkg-triplets/x64-mingw-dynamic-qt.cmake)
           # 在 vcpkg 内置 x64-mingw-dynamic 基础上强制 _GLIBCXX_USE_CXX11_ABI=0,
@@ -97,12 +102,30 @@ jobs:
           # 会重新触发 vcpkg install 装一份错的 (MSVC ABI) 到 build/.
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.vcpkg_triplet }}
           VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/cmake/vcpkg-triplets
+          # 关键: 强制 cmake + vcpkg 用 Qt 自带的 mingw73 (GCC 7.3). 默认
+          # PATH 上有 MSYS2 mingw64 (GCC 14+), 如果 cmake 自动选它, 链接的
+          # libstdc++.a 是 GCC 14 的, GCC 9+ 移除了 ABI=0 的 std::filesystem
+          # 等符号. QCutter 用 -D_GLIBCXX_USE_CXX11_ABI=0 强制 ABI=0, 链接器
+          # 找不到符号 → undefined reference, 即使编出 exe 运行时 std::filesystem
+          # 调用会用错 ABI 的符号 → 启动 segfault.
+          CMAKE_C_COMPILER: ${{ env.QT_ROOT_DIR }}/bin/gcc.exe
+          CMAKE_CXX_COMPILER: ${{ env.QT_ROOT_DIR }}/bin/g++.exe
+          # 让 vcpkg 编译依赖 (sqlite3/tiff/zlib 等) 时也用 Qt 自带的 mingw73,
+          # 不要用 MSYS2 mingw64. 否则依赖和 QCutter.exe 用不同 GCC 编, ABI 不一致.
+          VCPKG_CMAKE_CONFIGURE_OPTIONS: >-
+            -DCMAKE_C_COMPILER=${{ env.QT_ROOT_DIR }}/bin/gcc.exe
+            -DCMAKE_CXX_COMPILER=${{ env.QT_ROOT_DIR }}/bin/g++.exe
         run: |
+          # PATH 里 Qt mingw73 放最前, 避免 cmake 选 MSYS2 mingw64.
+          # 同时影响 g++/ld (链接阶段) 和 vcpkg 找编译器.
+          export PATH="${{ env.QT_ROOT_DIR }}/bin:$PATH"
           # 强制指定 triplet (vcpkg cmake toolchain 优先用 CMAKE_C_COMPILER 推断,
           # 在 windows-2022 runner 上 cl.exe 在 PATH 里就被推断成 x64-windows).
           cmake -S . -B build \
             -G ${{ matrix.generator }} \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="${{ env.QT_ROOT_DIR }}/bin/gcc.exe" \
+            -DCMAKE_CXX_COMPILER="${{ env.QT_ROOT_DIR }}/bin/g++.exe" \
             -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET="${{ matrix.vcpkg_triplet }}" \
             -DVCPKG_INSTALLED_DIR="$GITHUB_WORKSPACE/vcpkg_installed" \
