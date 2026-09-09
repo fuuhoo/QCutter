@@ -60,14 +60,16 @@ jobs:
           path: |
             ~/vcpkg
             ~/.cache/vcpkg
-          key: vcpkg-${{ matrix.os }}-${{ matrix.vcpkg_triplet }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ matrix.os }}-${{ matrix.vcpkg_triplet }}-v2
           restore-keys: |
             vcpkg-${{ matrix.os }}-${{ matrix.vcpkg_triplet }}-
 
       - name: Install vcpkg
         run: |
           if [ ! -x "$GITHUB_WORKSPACE/vcpkg/vcpkg" ]; then
-            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$GITHUB_WORKSPACE/vcpkg"
+            # Need full clone (not --depth 1) because vcpkg.json's builtin-baseline
+            # points at a specific commit that must be reachable from the clone.
+            git clone https://github.com/microsoft/vcpkg.git "$GITHUB_WORKSPACE/vcpkg"
             "$GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           else
             echo "vcpkg already installed"
